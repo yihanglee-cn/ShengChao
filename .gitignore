@@ -1,0 +1,15 @@
+# 构建产物
+build/
+*.dmg
+
+# 系统文件
+.DS_Store
+
+# Xcode / 编辑器
+*.xcuserstate
+xcuserdata/
+.idea/
+.vscode/
+
+# 其他
+.Rhistory
