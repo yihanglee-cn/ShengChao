@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="声潮"
-VERSION="1.0.0.0"
+VERSION="1.2.2.0"
 DMG_BASE="ShengChao-${VERSION}"
 VOL_NAME="${APP_NAME}"
 STAGING="build/dmg-staging"
