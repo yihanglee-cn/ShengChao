@@ -440,7 +440,7 @@ struct ContentView: View {
                               y: fullScreenCoverMode ? wf.height - 65 : min(coverY + 578 / 2 + 85, wf.height - 85))
 
                 // 歌名/歌手/专辑（全屏封面模式下固定显示在歌词上方，不随控制区隐藏）
-                if fullScreenCoverMode, let track = library.currentTrack {
+                if showFullCover && fullScreenCoverMode, let track = library.currentTrack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(track.title)
                             .font(.system(size: 34, weight: .bold))
@@ -607,6 +607,16 @@ struct ContentView: View {
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
+
+                if showFullCover && fullScreenCoverMode, let track = library.currentTrack {
+                    Button { library.toggleFavorite(track) } label: {
+                        Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(library.isFavorite(track) ? .red : .white.opacity(0.8))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .frame(width: 578)
