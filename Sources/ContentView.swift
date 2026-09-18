@@ -148,6 +148,9 @@ struct ContentView: View {
     @State private var showFullCover = false
     @State private var showLyrics = false
     @State private var coverVisible = false  // 大封面层可见性（关闭时延迟隐藏，保证回程动画可见）
+    @State private var controlsVisible = true  // 全屏封面模式下控制区是否自动隐藏
+    @State private var autoHideTask: Task<Void, Never>?
+    
     @ObservedObject private var coverFrameStore = CoverFrameStore.shared
     @State private var coverSeekPosition: Double = 0
     @State private var coverIsDragging = false
@@ -232,6 +235,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: showFullCover) { showing in
+            if !showing {
+                controlsVisible = true
+                autoHideTask?.cancel()
+                NSCursor.unhide()
+            }
             if showing {
                 coverVisible = true
                 showLyrics = true   // 打开播放页时自动显示歌词
@@ -424,8 +432,8 @@ struct ContentView: View {
 
                 // 封面下方：歌名 + 进度条 + 播放控制按钮（紧贴封面底边，且不超出窗口）
                 fullPlayerControls
-                    .opacity(coverVisible ? 1 : 0)
-                    .animation(nil, value: coverVisible)
+                    .opacity((coverVisible && (fullScreenCoverMode ? controlsVisible : true)) ? 1 : 0)
+                    .animation(.easeInOut(duration: 0.3), value: controlsVisible)
                     .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
                               y: fullScreenCoverMode ? wf.height - 95 : min(coverY + 578 / 2 + 85, wf.height - 85))
 
@@ -449,11 +457,32 @@ struct ContentView: View {
             .clipped()
         }
         .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            guard fullScreenCoverMode, showFullCover else { return }
+            switch phase {
+            case .active:
+                // 鼠标移动：显示控制区，重置 2 秒自动隐藏
+                controlsVisible = true
+                NSCursor.unhide()
+                autoHideTask?.cancel()
+                autoHideTask = Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if !Task.isCancelled {
+                        controlsVisible = false
+                        NSCursor.hide()
+                    }
+                }
+            case .ended:
+                controlsVisible = true
+                NSCursor.unhide()
+            }
+        }
         .onTapGesture {
             withAnimation(.easeInOut(duration: coverAnimationDuration)) {
                 showFullCover = false
                 showLyrics = false
             }
+            NSCursor.unhide()
         }
         .allowsHitTesting(showFullCover)
         .ignoresSafeArea()
