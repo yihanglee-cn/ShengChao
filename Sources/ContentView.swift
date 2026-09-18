@@ -447,7 +447,8 @@ struct ContentView: View {
                     .allowsHitTesting(coverVisible && (!fullScreenCoverMode || controlsVisible))
                     .zIndex(10)
                     .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
-                              y: fullScreenCoverMode ? wf.height - 65 : min(coverY + 578 / 2 + 85, wf.height - 85))
+                              y: showFullCover ? min(coverY + 578 / 2 + 85, wf.height - 85) : wf.height - 65)
+                    .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
 
                 // 歌名/歌手/专辑（全屏封面模式下固定显示在歌词上方，不随控制区隐藏）
                 if showFullCover && fullScreenCoverMode, let track = library.currentTrack {
