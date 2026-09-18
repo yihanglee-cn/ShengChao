@@ -356,7 +356,7 @@ struct ContentView: View {
                 .scaledToFill()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .blur(radius: 22)
-                .overlay(Color.black.opacity(0.22))
+                .overlay(Color.black.opacity(0.6))
                 .scaleEffect(1.5)
                 .rotationEffect(.degrees(rotationAngle))
                 .compositingGroup()
