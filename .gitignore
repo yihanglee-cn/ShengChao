@@ -13,3 +13,6 @@ xcuserdata/
 
 # 其他
 .Rhistory
+
+# XcodeGen 生成的工程文件（跑 xcodegen generate 可再生成）
+ShengChao.xcodeproj/
