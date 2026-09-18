@@ -197,8 +197,8 @@ struct ContentView: View {
                 fullCoverOverlay
                     .zIndex(10)
 
-                if showFullCover {
-                    // 「词」按钮 - 用窗口实际尺寸显式定位到右上角（不受布局膨胀影响）
+                if showFullCover && !fullScreenCoverMode {
+                    // 「词」按钮（全屏封面模式默认显示歌词，不需要切换）
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             showLyrics.toggle()
@@ -437,7 +437,7 @@ struct ContentView: View {
                     .allowsHitTesting(coverVisible && (!fullScreenCoverMode || controlsVisible))
                     .zIndex(10)
                     .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
-                              y: fullScreenCoverMode ? wf.height - 95 : min(coverY + 578 / 2 + 85, wf.height - 85))
+                              y: fullScreenCoverMode ? wf.height - 65 : min(coverY + 578 / 2 + 85, wf.height - 85))
 
                 // 歌名/歌手/专辑（全屏封面模式下固定显示在歌词上方，不随控制区隐藏）
                 if fullScreenCoverMode, let track = library.currentTrack {
