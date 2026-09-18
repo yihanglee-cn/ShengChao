@@ -88,8 +88,8 @@ struct ParallaxCover3DView: View {
 
     /// 显示/推理用图：优先文件夹封面（cover.jpg 等，与 Python 原型同源），无则用内嵌 artwork
     private var effectiveCover: NSImage {
-        if let folder = albumFolder, let art = AudioLibrary.findFolderArtwork(in: folder) {
-            return art
+        if let folder = albumFolder, let path = AudioLibrary.findFolderArtworkPath(in: folder) {
+            return ArtworkCache.shared.image(forPath: path) ?? cover
         }
         return cover
     }

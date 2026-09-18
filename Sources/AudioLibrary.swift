@@ -5,6 +5,84 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import AudioToolbox
+import CoreGraphics
+
+// MARK: - 封面降采样工具
+
+/// 将大图降采样到 maxDimension 以内，大幅降低内存占用
+/// 4096x4096 → 512x512，内存占用从 64MB 降到 4MB
+func downsampleImage(_ image: NSImage, maxDimension: CGFloat = 512) -> NSImage {
+    guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        return image
+    }
+    let width = CGFloat(cgImage.width)
+    let height = CGFloat(cgImage.height)
+    let maxSide = max(width, height)
+    guard maxSide > maxDimension else { return image }
+    
+    let scale = maxDimension / maxSide
+    let newWidth = Int(width * scale)
+    let newHeight = Int(height * scale)
+    
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let context = CGContext(
+        data: nil,
+        width: newWidth,
+        height: newHeight,
+        bitsPerComponent: 8,
+        bytesPerRow: newWidth * 4,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return image }
+    
+    context.interpolationQuality = .high
+    context.draw(cgImage, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+    
+    guard let resizedCG = context.makeImage() else { return image }
+    return NSImage(cgImage: resizedCG, size: NSSize(width: newWidth, height: newHeight))
+}
+
+// MARK: - 封面缓存（按需加载，自动淘汰）
+
+/// 按 key 缓存已解码的封面图，限制内存占用，自动淘汰最久未使用的
+final class ArtworkCache {
+    static let shared = ArtworkCache()
+    private let cache = NSCache<NSString, NSImage>()
+    
+    private init() {
+        // 最多缓存 100 张封面，约 100MB 上限
+        cache.countLimit = 100
+        cache.totalCostLimit = 100 * 1024 * 1024
+    }
+    
+    /// 从 Data 解码并缓存（内嵌封面用）
+    func image(forKey key: String, data: Data) -> NSImage? {
+        if let cached = cache.object(forKey: key as NSString) {
+            return cached
+        }
+        guard let img = NSImage(data: data) else { return nil }
+        // 估算内存占用：宽 × 高 × 4字节(RGBA)
+        let cost = Int(img.size.width * img.size.height * 4)
+        cache.setObject(img, forKey: key as NSString, cost: cost)
+        return img
+    }
+    
+    /// 从文件路径加载并缓存（文件夹封面用）
+    func image(forPath path: String) -> NSImage? {
+        if let cached = cache.object(forKey: path as NSString) {
+            return cached
+        }
+        guard let img = NSImage(contentsOfFile: path) else { return nil }
+        let cost = Int(img.size.width * img.size.height * 4)
+        cache.setObject(img, forKey: path as NSString, cost: cost)
+        return img
+    }
+    
+    /// 清除所有缓存
+    func clear() {
+        cache.removeAllObjects()
+    }
+}
 
 // MARK: - 数据模型
 
@@ -15,7 +93,8 @@ struct AudioTrack: Identifiable {
     let artist: String
     let album: String
     let duration: Double
-    let artwork: NSImage?
+    let artworkData: Data?      // 内嵌封面原始数据（JPEG 压缩格式）
+    let artworkPath: String?    // 文件夹封面路径（优先于 artworkData）
     let bitrate: Int
     let sampleRate: Double
     let bitDepth: Int
@@ -24,8 +103,20 @@ struct AudioTrack: Identifiable {
     let dynamicCoverURL: URL?
     let trackNumber: Int?
 
+    /// 按需获取封面图（走缓存，不提前解码）
+    var artwork: NSImage? {
+        if let path = artworkPath {
+            return ArtworkCache.shared.image(forPath: path)
+        }
+        if let data = artworkData {
+            return ArtworkCache.shared.image(forKey: url.path, data: data)
+        }
+        return nil
+    }
+
     init(id: UUID = UUID(), url: URL, title: String, artist: String, album: String,
-         duration: Double, artwork: NSImage?, bitrate: Int, sampleRate: Double = 0,
+         duration: Double, artworkData: Data? = nil, artworkPath: String? = nil,
+         bitrate: Int, sampleRate: Double = 0,
          bitDepth: Int = 0, startOffset: Double = 0, lyrics: [LyricsLine]? = nil,
          dynamicCoverURL: URL? = nil, trackNumber: Int? = nil) {
         self.id = id
@@ -34,7 +125,8 @@ struct AudioTrack: Identifiable {
         self.artist = artist
         self.album = album
         self.duration = duration
-        self.artwork = artwork
+        self.artworkData = artworkData
+        self.artworkPath = artworkPath
         self.bitrate = bitrate
         self.sampleRate = sampleRate
         self.bitDepth = bitDepth
@@ -65,17 +157,35 @@ struct AlbumGroup: Identifiable {
     let id: UUID
     let name: String
     let artist: String
-    let artwork: NSImage?
+    let artworkData: Data?      // 内嵌封面原始数据
+    let artworkPath: String?    // 文件夹封面路径
     let tracks: [AudioTrack]
     let folderURL: URL?
     let dynamicCoverURL: URL?
 
-    init(id: UUID = UUID(), name: String, artist: String, artwork: NSImage?,
+    /// 按需获取封面图（走缓存，不提前解码）
+    var artwork: NSImage? {
+        if let path = artworkPath {
+            return ArtworkCache.shared.image(forPath: path)
+        }
+        if let data = artworkData {
+            return ArtworkCache.shared.image(forKey: "album_\(id.uuidString)", data: data)
+        }
+        // 兜底：从第一首有封面的曲目取
+        if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil }) {
+            return track.artwork
+        }
+        return nil
+    }
+
+    init(id: UUID = UUID(), name: String, artist: String,
+         artworkData: Data? = nil, artworkPath: String? = nil,
          tracks: [AudioTrack], folderURL: URL? = nil, dynamicCoverURL: URL? = nil) {
         self.id = id
         self.name = name
         self.artist = artist
-        self.artwork = artwork
+        self.artworkData = artworkData
+        self.artworkPath = artworkPath
         self.tracks = tracks
         self.folderURL = folderURL
         self.dynamicCoverURL = dynamicCoverURL
@@ -337,7 +447,8 @@ final class AudioLibrary: ObservableObject {
 
             cueHandledAudio.insert(audioURL.standardizedFileURL)
             let totalDuration = full.duration
-            let artwork = full.artwork ?? Self.findFolderArtwork(in: dir)
+            let artworkData = full.artworkData
+            let artworkPath = Self.findFolderArtworkPath(in: dir)
             let dynamicCover = Self.findFolderDynamicCover(in: dir)
             let bitrate = full.bitrate
             let albumName = sheet.albumTitle.isEmpty ? dir.lastPathComponent : sheet.albumTitle
@@ -360,7 +471,8 @@ final class AudioLibrary: ObservableObject {
                 }
                 cueTracks.append(AudioTrack(url: audioURL, title: title, artist: artist,
                                             album: albumName, duration: dur,
-                                            artwork: artwork, bitrate: bitrate,
+                                            artworkData: artworkData, artworkPath: artworkPath,
+                                            bitrate: bitrate,
                                             sampleRate: full.sampleRate, bitDepth: full.bitDepth,
                                             startOffset: start, lyrics: trackLyrics,
                                             dynamicCoverURL: dynamicCover,
@@ -377,19 +489,21 @@ final class AudioLibrary: ObservableObject {
         allTracks = allTracks.map { track in
             let dir = track.url.deletingLastPathComponent()
             let dyn = track.dynamicCoverURL ?? Self.findFolderDynamicCover(in: dir)
-            if track.artwork != nil && dyn != nil {
+            let hasArtwork = track.artworkData != nil || track.artworkPath != nil
+            if hasArtwork && dyn != nil {
                 return AudioTrack(id: track.id, url: track.url, title: track.title,
                                   artist: track.artist, album: track.album,
-                                  duration: track.duration, artwork: track.artwork,
+                                  duration: track.duration,
+                                  artworkData: track.artworkData, artworkPath: track.artworkPath,
                                   bitrate: track.bitrate, sampleRate: track.sampleRate,
                                   bitDepth: track.bitDepth, startOffset: track.startOffset,
                                   lyrics: track.lyrics, dynamicCoverURL: dyn,
                                   trackNumber: track.trackNumber)
             }
-            guard track.artwork == nil, let art = Self.findFolderArtwork(in: dir) else { return track }
+            guard !hasArtwork, let artPath = Self.findFolderArtworkPath(in: dir) else { return track }
             return AudioTrack(id: track.id, url: track.url, title: track.title,
                               artist: track.artist, album: track.album,
-                              duration: track.duration, artwork: art,
+                              duration: track.duration, artworkPath: artPath,
                               bitrate: track.bitrate, sampleRate: track.sampleRate,
                               bitDepth: track.bitDepth, startOffset: track.startOffset,
                               lyrics: track.lyrics, dynamicCoverURL: dyn,
@@ -400,11 +514,13 @@ final class AudioLibrary: ObservableObject {
         let grouped = Dictionary(grouping: allTracks) { $0.album.isEmpty ? "未知专辑" : $0.album }
         let sortedAlbums = grouped.map { (name, groupTracks) -> AlbumGroup in
             let sortedTracks = groupTracks.sorted { Self.trackBefore($0, $1) }
-            let artwork = sortedTracks.first(where: { $0.artwork != nil })?.artwork
+            let artworkData = sortedTracks.first(where: { $0.artworkData != nil })?.artworkData
+            let artworkPath = sortedTracks.first(where: { $0.artworkPath != nil })?.artworkPath
             let dynamicCover = sortedTracks.first(where: { $0.dynamicCoverURL != nil })?.dynamicCoverURL
             let artist = sortedTracks.first?.artist ?? "未知艺术家"
             let folderURL = sortedTracks.first?.url.deletingLastPathComponent()
-            return AlbumGroup(name: name, artist: artist, artwork: artwork,
+            return AlbumGroup(name: name, artist: artist,
+                              artworkData: artworkData, artworkPath: artworkPath,
                               tracks: sortedTracks, folderURL: folderURL,
                               dynamicCoverURL: dynamicCover)
         }.sorted { $0.name < $1.name }
@@ -462,10 +578,10 @@ final class AudioLibrary: ObservableObject {
         return result
     }
 
-    // 文件夹里的封面图（同目录 + 子目录如"封面"/"cover"/"Artwork"）
-    static nonisolated func findFolderArtwork(in dir: URL) -> NSImage? {
+    // 文件夹里的封面图路径（同目录 + 子目录如"封面"/"cover"/"Artwork"）
+    static nonisolated func findFolderArtworkPath(in dir: URL) -> String? {
         // 1. 同目录
-        if let img = artworkInDir(dir) { return img }
+        if let path = artworkPathInDir(dir) { return path }
 
         // 2. 子目录（优先名字含封面/cover/artwork 的子目录）
         let fm = FileManager.default
@@ -482,12 +598,12 @@ final class AudioLibrary: ObservableObject {
         for sub in sorted {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: sub.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            if let img = artworkInDir(sub) { return img }
+            if let path = artworkPathInDir(sub) { return path }
         }
         return nil
     }
 
-    private static nonisolated func artworkInDir(_ dir: URL) -> NSImage? {
+    private static nonisolated func artworkPathInDir(_ dir: URL) -> String? {
         let preferred = ["cover", "folder", "front", "album", "artwork"]
         let fm = FileManager.default
         guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else {
@@ -502,14 +618,11 @@ final class AudioLibrary: ObservableObject {
         for name in preferred {
             if let match = images.first(where: {
                 $0.deletingPathExtension().lastPathComponent.lowercased() == name
-            }), let img = NSImage(contentsOf: match) {
-                return img
+            }) {
+                return match.path
             }
         }
-        for img in images {
-            if let image = NSImage(contentsOf: img) { return image }
-        }
-        return nil
+        return images.first?.path
     }
 
     // 文件夹里的动态封面（cover.mp4，同目录 + 子目录如"封面"/"cover"/"Artwork"）
@@ -633,7 +746,7 @@ final class AudioLibrary: ObservableObject {
         var title = cleanTitle(url.lastPathComponent)
         var artist = inferred.artist.isEmpty ? "未知艺术家" : inferred.artist
         var album = inferred.album.isEmpty ? folderName : inferred.album
-        var artwork: NSImage?
+        var artworkData: Data?
         var trackNumber: Int?
         var duration: Double = 0
         let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
@@ -657,8 +770,8 @@ final class AudioLibrary: ObservableObject {
                 case .commonKeyAlbumName:
                     if let v = try? await item.load(.stringValue), !v.isEmpty { album = v }
                 case .commonKeyArtwork:
-                    if let data = try? await item.load(.dataValue), let img = NSImage(data: data) {
-                        artwork = img
+                    if let data = try? await item.load(.dataValue) {
+                        artworkData = data  // 只存原始数据，显示时再解码
                     }
                 default:
                     // 曲目号：FLAC vorbis 的 TRACKNUMBER / ID3 TRCK（可能是 "5/12" 格式）
@@ -681,7 +794,8 @@ final class AudioLibrary: ObservableObject {
             lyrics = await LyricsParser.loadEmbeddedLyrics(url: url, duration: duration)
         }
         return AudioTrack(url: url, title: title, artist: artist, album: album,
-                          duration: duration, artwork: artwork, bitrate: bitrate,
+                          duration: duration, artworkData: artworkData,
+                          bitrate: bitrate,
                           sampleRate: fmt.sampleRate, bitDepth: fmt.bitDepth,
                           lyrics: lyrics, trackNumber: trackNumber)
     }
@@ -884,7 +998,8 @@ final class AudioLibrary: ObservableObject {
             let use = (filtered.isEmpty && track.startOffset == 0) ? fresh : filtered
             effectiveTrack = AudioTrack(id: track.id, url: track.url, title: track.title,
                                         artist: track.artist, album: track.album,
-                                        duration: track.duration, artwork: track.artwork,
+                                        duration: track.duration,
+                                        artworkData: track.artworkData, artworkPath: track.artworkPath,
                                         bitrate: track.bitrate, sampleRate: track.sampleRate,
                                         bitDepth: track.bitDepth, startOffset: track.startOffset,
                                         lyrics: use, dynamicCoverURL: track.dynamicCoverURL,
@@ -1197,10 +1312,16 @@ final class AudioLibrary: ObservableObject {
     }
 
     private func setCustomArtwork(for albumID: UUID, image: NSImage) {
+        // 把用户选择的封面转成 JPEG data 存起来
+        var data: Data? = nil
+        if let tiff = image.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff) {
+            data = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+        }
         albums = albums.map { album in
             guard album.id == albumID else { return album }
             return AlbumGroup(id: album.id, name: album.name, artist: album.artist,
-                              artwork: image, tracks: album.tracks, folderURL: album.folderURL)
+                              artworkData: data, tracks: album.tracks, folderURL: album.folderURL)
         }
         if selectedAlbum?.id == albumID {
             selectedAlbum = albums.first(where: { $0.id == albumID })
@@ -1267,7 +1388,8 @@ final class AudioLibrary: ObservableObject {
             }
             currentTrack = AudioTrack(id: cur.id, url: cur.url, title: cur.title,
                                       artist: cur.artist, album: cur.album,
-                                      duration: cur.duration, artwork: cur.artwork,
+                                      duration: cur.duration,
+                                      artworkData: cur.artworkData, artworkPath: cur.artworkPath,
                                       bitrate: cur.bitrate, sampleRate: cur.sampleRate,
                                       bitDepth: cur.bitDepth, startOffset: cur.startOffset,
                                       lyrics: filtered.isEmpty ? fresh : filtered,
