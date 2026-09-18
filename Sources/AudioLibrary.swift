@@ -111,6 +111,14 @@ final class AudioLibrary: ObservableObject {
         didSet { playerNode.volume = Float(volume) }
     }
     @Published var playQueue: [AudioTrack] = []
+    enum PlaybackMode: String { case off, all, one, shuffle }
+    @Published var playbackMode: PlaybackMode = {
+        if let s = UserDefaults.standard.string(forKey: "playbackMode"),
+           let m = PlaybackMode(rawValue: s) { return m }
+        return .off
+    }() {
+        didSet { UserDefaults.standard.set(playbackMode.rawValue, forKey: "playbackMode") }
+    }
     @Published var activeSidebar = "歌曲"  // 当前侧边栏上下文（决定上下切歌的队列来源）
     @Published var recentTracks: [AudioTrack] = []
     @Published var favoriteKeys: Set<String> = []
@@ -1016,12 +1024,33 @@ final class AudioLibrary: ObservableObject {
 
     func next() {
         guard !playQueue.isEmpty else { return }
+        if playbackMode == .shuffle, playQueue.count > 1 {
+            var candidates = playQueue
+            if let current = currentTrack,
+               let idx = playQueue.firstIndex(where: { $0.id == current.id }) {
+                candidates.remove(at: idx)
+            }
+            play(candidates.randomElement() ?? playQueue[0])
+            return
+        }
         guard let current = currentTrack,
               let idx = playQueue.firstIndex(where: { $0.id == current.id }) else {
             play(playQueue[0]); return
         }
         if idx + 1 < playQueue.count {
             play(playQueue[idx + 1])
+        } else if playbackMode == .all {
+            play(playQueue[0])
+        }
+    }
+
+    /// 循环切换播放模式：off → all → one → shuffle → off
+    func cyclePlaybackMode() {
+        switch playbackMode {
+        case .off: playbackMode = .all
+        case .all: playbackMode = .one
+        case .one: playbackMode = .shuffle
+        case .shuffle: playbackMode = .off
         }
     }
 
@@ -1035,6 +1064,9 @@ final class AudioLibrary: ObservableObject {
     }
 
     func hasNext() -> Bool {
+        guard !playQueue.isEmpty else { return false }
+        if playbackMode == .shuffle { return playQueue.count > 1 }
+        if playbackMode == .all { return true }
         guard let current = currentTrack,
               let idx = playQueue.firstIndex(where: { $0.id == current.id }) else { return false }
         return idx + 1 < playQueue.count
@@ -1043,6 +1075,10 @@ final class AudioLibrary: ObservableObject {
     private func advanceOrStop() {
         // 设备切换期间禁止切歌（切换处理会重新调度当前歌曲）
         guard !isDeviceSwitching else { return }
+        if playbackMode == .one, let t = currentTrack {
+            play(t)
+            return
+        }
         if hasNext() {
             next()
         } else {

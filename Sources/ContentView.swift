@@ -337,7 +337,7 @@ struct ContentView: View {
             let startX = hasSmall ? sc.midX : (wf.origin.x + 59)
             let startY = hasSmall ? sc.midY : (wf.origin.y + wf.height - 57)
             let coverX: CGFloat = (showFullCover ? wf.width / 2 : startX - wf.origin.x) - (showLyrics ? 300 : 0)
-            let coverY: CGFloat = showFullCover ? wf.height / 2 : startY - wf.origin.y
+            let coverY: CGFloat = showFullCover ? wf.height / 2 - 55 : startY - wf.origin.y
             ZStack {
                 // 背景（慢慢淡入淡出，逐渐盖住主界面玻璃栏）
                 // 必须显式约束到窗口尺寸：resizable Image + maxWidth/maxHeight .infinity
@@ -372,11 +372,12 @@ struct ContentView: View {
                 .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
                 .shadow(color: .black.opacity(0.45), radius: 42, y: 18)
 
-                // 进度条（封面下方：封面底边与窗口底边的中点）
-                coverProgressBar
+                // 封面下方：歌名 + 进度条 + 播放控制按钮（紧贴封面底边，且不超出窗口）
+                fullPlayerControls
                     .opacity(coverVisible ? 1 : 0)
                     .animation(nil, value: coverVisible)
-                    .position(x: coverX, y: (coverY + 578 / 2 + wf.height) / 2)
+                    .position(x: coverX,
+                              y: min(coverY + 578 / 2 + 85, wf.height - 85))
 
                 // 歌词（右侧，纵向充满窗口，向右扩展）
                 if showLyrics {
@@ -446,6 +447,68 @@ struct ContentView: View {
                 coverSeekPosition = t
             }
         }
+    }
+
+    // 播放页完整控制区：歌名 + 进度条 + 随机/上下首/播放/循环
+    @ViewBuilder
+    private var fullPlayerControls: some View {
+        VStack(spacing: 14) {
+            // 歌名 + 艺术家
+            VStack(spacing: 4) {
+                Text(library.currentTrack?.title ?? "")
+                    .font(.title2.weight(.semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(library.currentTrack.map { "\($0.artist) — \($0.album)" } ?? "")
+                    .font(.subheadline)
+                    .foregroundColor(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
+            .id(library.currentTrack?.id)
+
+            // 进度条（复用）
+            coverProgressBar
+
+            // 控制按钮：播放模式 / 上一首 / 播放暂停 / 下一首
+            HStack(spacing: 26) {
+                Button { library.cyclePlaybackMode() } label: {
+                    Image(systemName: library.playbackMode == .one ? "repeat.1" :
+                                          library.playbackMode == .shuffle ? "shuffle" : "repeat")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(library.playbackMode == .off ? .white.opacity(0.45) : .white)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+
+                Button { library.previous() } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+
+                Button { library.togglePlay() } label: {
+                    Image(systemName: library.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 60, height: 60)
+                        .glassEffect(.clear, in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                Button { library.next() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 578)
+        .contentShape(Rectangle())
+        .onTapGesture { }   // 吞掉点击，不触发关闭播放页
     }
 
     // 音量指示胶囊（大封面界面顶端）
