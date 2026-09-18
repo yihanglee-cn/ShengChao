@@ -434,6 +434,8 @@ struct ContentView: View {
                 fullPlayerControls
                     .opacity((coverVisible && (fullScreenCoverMode ? controlsVisible : true)) ? 1 : 0)
                     .animation(.easeInOut(duration: 0.3), value: controlsVisible)
+                    .allowsHitTesting(coverVisible && (!fullScreenCoverMode || controlsVisible))
+                    .zIndex(10)
                     .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
                               y: fullScreenCoverMode ? wf.height - 95 : min(coverY + 578 / 2 + 85, wf.height - 85))
 

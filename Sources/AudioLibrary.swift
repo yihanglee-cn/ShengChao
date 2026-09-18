@@ -134,12 +134,6 @@ final class AudioLibrary: ObservableObject {
             playlists = decoded
         }
         setupEngine()
-        // 启动时从磁盘缓存加载曲库（秒开），再后台静默重扫
-        loadLibraryCache()
-        if let roots = UserDefaults.standard.array(forKey: "scanRoots") as? [String], !roots.isEmpty {
-            let urls = roots.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            Task { await scan(roots: urls) }
-        }
     }
 
     deinit {
@@ -309,7 +303,6 @@ final class AudioLibrary: ObservableObject {
         panel.message = "选择包含无损音乐的文件夹"
         panel.directoryURL = FileManager.default.urls(for: .musicDirectory, in: .userDomainMask).first
         if panel.runModal() == .OK, let url = panel.url {
-            UserDefaults.standard.set([url.path], forKey: "scanRoots")
             Task { await scan(roots: [url]) }
         }
     }
@@ -403,47 +396,9 @@ final class AudioLibrary: ObservableObject {
                               trackNumber: track.trackNumber)
         }
 
-        rebuildAlbums(from: allTracks)
-        playQueue = tracks
-        selectedAlbum = nil
-        saveLibraryCache()
-
-        // 6. 汇总 + 遗漏检查
-        statusMessage = "扫描完成：\(allTracks.count) 首 · \(albums.count) 张专辑"
-        if warnings.isEmpty {
-            warnings.append("✅ 未发现遗漏，全部音乐已入库（含 CUE 分轨）")
-        }
-    }
-
-    // MARK: - 曲库缓存（磁盘持久化）
-
-    private struct TrackCache: Codable {
-        let id: UUID
-        let path: String
-        let title: String
-        let artist: String
-        let album: String
-        let duration: Double
-        let bitrate: Int
-        let sampleRate: Double
-        let bitDepth: Int
-        let startOffset: Double
-        let trackNumber: Int?
-        let dynamicCoverPath: String?
-        let artworkPNG: Data?
-        let lyrics: [LyricsLine]?
-    }
-
-    private var cacheFileURL: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ShengChao", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("library.json")
-    }
-
-    private func rebuildAlbums(from allTracks: [AudioTrack]) {
+        // 5. 分组 + 排序
         let grouped = Dictionary(grouping: allTracks) { $0.album.isEmpty ? "未知专辑" : $0.album }
-        albums = grouped.map { (name, groupTracks) -> AlbumGroup in
+        let sortedAlbums = grouped.map { (name, groupTracks) -> AlbumGroup in
             let sortedTracks = groupTracks.sorted { Self.trackBefore($0, $1) }
             let artwork = sortedTracks.first(where: { $0.artwork != nil })?.artwork
             let dynamicCover = sortedTracks.first(where: { $0.dynamicCoverURL != nil })?.dynamicCoverURL
@@ -453,45 +408,20 @@ final class AudioLibrary: ObservableObject {
                               tracks: sortedTracks, folderURL: folderURL,
                               dynamicCoverURL: dynamicCover)
         }.sorted { $0.name < $1.name }
+
+        albums = sortedAlbums
         tracks = allTracks.sorted {
             if $0.album != $1.album { return $0.album < $1.album }
             return Self.trackBefore($0, $1)
         }
-    }
-
-    private func saveLibraryCache() {
-        let caches = tracks.map { t -> TrackCache in
-            let png = t.artwork?.tiffRepresentation.flatMap {
-                NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:])
-            }
-            return TrackCache(id: t.id, path: t.url.path, title: t.title, artist: t.artist,
-                              album: t.album, duration: t.duration, bitrate: t.bitrate,
-                              sampleRate: t.sampleRate, bitDepth: t.bitDepth,
-                              startOffset: t.startOffset, trackNumber: t.trackNumber,
-                              dynamicCoverPath: t.dynamicCoverURL?.path,
-                              artworkPNG: png, lyrics: t.lyrics)
-        }
-        try? JSONEncoder().encode(caches).write(to: cacheFileURL)
-    }
-
-    private func loadLibraryCache() {
-        guard let data = try? Data(contentsOf: cacheFileURL),
-              let caches = try? JSONDecoder().decode([TrackCache].self, from: data) else { return }
-        var loaded: [AudioTrack] = []
-        for c in caches {
-            guard FileManager.default.fileExists(atPath: c.path) else { continue }
-            let artwork = c.artworkPNG.flatMap { NSImage(data: $0) }
-            let dyn = c.dynamicCoverPath.flatMap { URL(fileURLWithPath: $0) }
-            loaded.append(AudioTrack(id: c.id, url: URL(fileURLWithPath: c.path),
-                title: c.title, artist: c.artist, album: c.album,
-                duration: c.duration, artwork: artwork, bitrate: c.bitrate,
-                sampleRate: c.sampleRate, bitDepth: c.bitDepth,
-                startOffset: c.startOffset, lyrics: c.lyrics,
-                dynamicCoverURL: dyn, trackNumber: c.trackNumber))
-        }
-        rebuildAlbums(from: loaded)
         playQueue = tracks
-        statusMessage = "已从缓存加载 \(tracks.count) 首"
+        selectedAlbum = nil
+
+        // 6. 汇总 + 遗漏检查
+        statusMessage = "扫描完成：\(allTracks.count) 首 · \(sortedAlbums.count) 张专辑"
+        if warnings.isEmpty {
+            warnings.append("✅ 未发现遗漏，全部音乐已入库（含 CUE 分轨）")
+        }
     }
 
     // MARK: - 文件收集
