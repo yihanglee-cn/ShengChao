@@ -212,6 +212,7 @@ struct ContentView: View {
         .onChange(of: showFullCover) { showing in
             if showing {
                 coverVisible = true
+                showLyrics = true   // 打开播放页时自动显示歌词
             } else {
                 // 等关闭动画结束再隐藏大封面层，让回程动画可见
                 DispatchQueue.main.asyncAfter(deadline: .now() + coverAnimationDuration + 0.15) {
