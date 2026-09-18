@@ -164,12 +164,13 @@ struct ContentView: View {
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    @State private var showSettings = false
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 VStack(spacing: 0) {
-                    TopBar(library: library)
+                    TopBar(library: library, showSettings: $showSettings)
                         .padding(.horizontal, 20)
                         .padding(.top, 12)
                         .padding(.bottom, 10)
@@ -196,6 +197,13 @@ struct ContentView: View {
                 // 大封面（常驻；背景淡入淡出，封面不透明只做位移动画）
                 fullCoverOverlay
                     .zIndex(10)
+
+                // 设置浮层（主窗口内，跟随窗口最小化）
+                if showSettings {
+                    SettingsPanel(showSettings: $showSettings)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                        .zIndex(30)
+                }
 
                 if showFullCover && !fullScreenCoverMode {
                     // 「词」按钮（全屏封面模式默认显示歌词，不需要切换）
@@ -799,11 +807,9 @@ struct Background: View {
 
 struct TopBar: View {
     @ObservedObject var library: AudioLibrary
+    @Binding var showSettings: Bool
     @AppStorage("nightMode") private var nightMode = true
     @State private var showVersion = false
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
-    @AppStorage("settingsWindowOpen") private var settingsWindowOpen = false
     private var theme: AppTheme { nightMode ? .night : .day }
 
     private var appVersion: String {
@@ -891,11 +897,8 @@ struct TopBar: View {
                 .help(nightMode ? "切换到白天模式" : "切换到夜晚模式")
 
                 Button {
-                    // 点击设置：已开则关闭，未开则打开（toggle）
-                    if settingsWindowOpen {
-                        dismissWindow(id: "settings")
-                    } else {
-                        openWindow(id: "settings")
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings.toggle()
                     }
                 } label: {
                     Image(systemName: "gearshape")
@@ -909,7 +912,136 @@ struct TopBar: View {
     }
 }
 
-// MARK: - 设置窗口
+// MARK: - 设置浮层（主窗口内）
+
+struct SettingsPanel: View {
+    @Binding var showSettings: Bool
+    @AppStorage("nightMode") private var nightMode = true
+    @AppStorage("energySaving") private var energySaving = false
+    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
+    @AppStorage("cover3DEnabled") private var cover3DEnabled = false
+    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    @State private var hoveringClose = false
+    private var theme: AppTheme { nightMode ? .night : .day }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // 透明背景：点击外部关闭
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showSettings = false
+                    }
+                }
+
+            // 设置面板本体
+            VStack(spacing: 18) {
+                // 行 1：节能模式
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("节能模式")
+                            .foregroundStyle(theme.primaryText)
+                        Text("关闭背景专辑封面旋转")
+                            .font(.caption)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $energySaving)
+                        .toggleStyle(.switch)
+                        .tint(.blue)
+                        .accentColor(.blue)
+                        .help("节能模式")
+                        .onChange(of: energySaving) { _, newValue in
+                            if newValue { cover3DEnabled = false }
+                        }
+                }
+
+                // 行 2：动态封面
+                HStack(spacing: 12) {
+                    Text("动态封面")
+                        .foregroundStyle(theme.primaryText)
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $dynamicCoverEnabled)
+                        .toggleStyle(.switch)
+                        .tint(.blue)
+                        .accentColor(.blue)
+                        .help("动态封面")
+                        .onChange(of: dynamicCoverEnabled) { _, newValue in
+                            if newValue { cover3DEnabled = false }
+                        }
+                }
+
+                // 行 3：3D 封面
+                HStack(spacing: 12) {
+                    Text("3D 封面")
+                        .foregroundStyle(theme.primaryText)
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $cover3DEnabled)
+                        .toggleStyle(.switch)
+                        .tint(.blue)
+                        .accentColor(.blue)
+                        .help("3D 封面")
+                        .onChange(of: cover3DEnabled) { _, newValue in
+                            if newValue { dynamicCoverEnabled = false }
+                        }
+                }
+
+                // 行 4：全屏封面
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("全屏封面")
+                            .foregroundStyle(theme.primaryText)
+                        Text("专辑图铺满播放页，右侧歌词加遮罩")
+                            .font(.caption)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $fullScreenCoverMode)
+                        .toggleStyle(.switch)
+                        .tint(.blue)
+                        .accentColor(.blue)
+                        .help("全屏封面")
+                }
+            }
+            .padding(20)
+            .frame(width: 300)
+            .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                closeButton
+            }
+            .padding(.top, 60)  // 距离顶部：TopBar 高度 + 间距
+            .padding(.trailing, 20)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var closeButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                showSettings = false
+            }
+        } label: {
+            Circle()
+                .fill(Color(red: 1.0, green: 0.373, blue: 0.341))
+                .frame(width: 12, height: 12)
+                .overlay(
+                    Image(systemName: "xmark")
+                        .font(.system(size: 6.5, weight: .bold))
+                        .foregroundStyle(Color(red: 0.42, green: 0.05, blue: 0.05))
+                )
+                .opacity(hoveringClose ? 1 : 0)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 28, height: 28)
+        .background(HoverDetector { hoveringClose = $0 })
+        .animation(.easeInOut(duration: 0.15), value: hoveringClose)
+        .padding(3)
+        .help("关闭设置")
+    }
+}
+
+// MARK: - 设置窗口（旧版，保留兼容）
 
 struct SettingsWindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> FloatingWindowConfiguratorView {
@@ -932,6 +1064,7 @@ struct SettingsWindowConfigurator: NSViewRepresentable {
             window.standardWindowButton(.closeButton)?.isHidden = true
             window.standardWindowButton(.miniaturizeButton)?.isHidden = true
             window.standardWindowButton(.zoomButton)?.isHidden = true
+            
             // 定位：设置窗口右边缘 = 主窗口内容面板右边缘；
             // 上边缘 = 设置按钮下边（56pt）+ 下方 14pt = 70
             if let main = NSApp.windows.first(where: { $0 != window && $0.isVisible }),
@@ -943,6 +1076,37 @@ struct SettingsWindowConfigurator: NSViewRepresentable {
                 let x = contentFrame.maxX - w
                 let y = contentFrame.maxY - h - 70
                 window.setFrameOrigin(NSPoint(x: x, y: y))
+                
+                // 监听主窗口最小化事件：主窗口最小化时，设置窗口也隐藏
+                NotificationCenter.default.addObserver(
+                    forName: NSWindow.willMiniaturizeNotification,
+                    object: main,
+                    queue: .main
+                ) { _ in
+                    window.orderOut(nil)
+                }
+                
+                // 监听主窗口取消最小化事件：主窗口恢复时，设置窗口也恢复
+                NotificationCenter.default.addObserver(
+                    forName: NSWindow.didDeminiaturizeNotification,
+                    object: main,
+                    queue: .main
+                ) { _ in
+                    window.orderFront(nil)
+                }
+            }
+            
+            // 设置窗口失去焦点时自动关闭（点击外部即关闭，类似下拉菜单）
+            // 用通知监听，不覆盖 SwiftUI 原有的 window delegate
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { _ in
+                // 延迟一下，避免点击设置按钮 toggle 时立即关闭
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    window.close()
+                }
             }
         }
         return view
