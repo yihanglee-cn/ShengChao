@@ -439,13 +439,33 @@ struct ContentView: View {
                     .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
                               y: fullScreenCoverMode ? wf.height - 95 : min(coverY + 578 / 2 + 85, wf.height - 85))
 
+                // 歌名/歌手/专辑（全屏封面模式下固定显示在歌词上方，不随控制区隐藏）
+                if fullScreenCoverMode, let track = library.currentTrack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(track.title)
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        Text("\(track.artist) · \(track.album)")
+                            .font(.system(size: 15))
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                    .frame(width: max(480, wf.width - 40 - (wf.width / 2 + 60)), alignment: .leading)
+                    .position(x: wf.width / 2 + 60 + max(480, wf.width - 40 - (wf.width / 2 + 60)) / 2, y: 70)
+                    .zIndex(5)
+                }
+
                 // 歌词（右侧，纵向充满窗口，向右扩展）
                 if showLyrics {
                     let lyricsLeft = wf.width / 2 + 60
                     let lyricsWidth = max(480, wf.width - 40 - lyricsLeft)
-                    lyricsPanel(height: wf.height)
-                        .frame(width: lyricsWidth, height: wf.height)
-                        .position(x: lyricsLeft + lyricsWidth / 2, y: wf.height / 2)
+                    // 全屏封面模式下歌词从歌名下方（y=130）开始，避免重叠
+                    let topInset: CGFloat = fullScreenCoverMode ? 130 : 0
+                    let lyricHeight = wf.height - topInset
+                    lyricsPanel(height: lyricHeight)
+                        .frame(width: lyricsWidth, height: lyricHeight)
+                        .position(x: lyricsLeft + lyricsWidth / 2, y: topInset + lyricHeight / 2)
                         .transition(.opacity)
                         .onTapGesture { }
                 }
@@ -534,18 +554,20 @@ struct ContentView: View {
     @ViewBuilder
     private var fullPlayerControls: some View {
         VStack(spacing: 14) {
-            // 歌名 + 艺术家
-            VStack(spacing: 4) {
-                Text(library.currentTrack?.title ?? "")
-                    .font(.title2.weight(.semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                Text(library.currentTrack.map { "\($0.artist) — \($0.album)" } ?? "")
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.6))
-                    .lineLimit(1)
+            // 歌名/艺术家（全屏封面模式下单独固定显示在歌词上方，这里不重复）
+            if !fullScreenCoverMode {
+                VStack(spacing: 4) {
+                    Text(library.currentTrack?.title ?? "")
+                        .font(.title2.weight(.semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    Text(library.currentTrack.map { "\($0.artist) — \($0.album)" } ?? "")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+                .id(library.currentTrack?.id)
             }
-            .id(library.currentTrack?.id)
 
             // 进度条（复用）
             coverProgressBar
