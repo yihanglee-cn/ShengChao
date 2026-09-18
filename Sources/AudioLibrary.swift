@@ -320,14 +320,17 @@ final class AudioLibrary: ObservableObject {
         statusMessage = "正在扫描…"
         defer { isScanning = false }
 
-        // 1. 收集音频文件 + CUE 文件
-        var audioFiles: [URL] = []
-        var cueFiles: [URL] = []
-        for root in roots {
-            audioFiles.append(contentsOf: Self.collectFiles(in: root, extensions: Self.allAudioExtensions))
-            cueFiles.append(contentsOf: Self.collectFiles(in: root, extensions: ["cue"]))
-        }
-        audioFiles = Array(Set(audioFiles.map { $0.standardizedFileURL }))
+        // 1. 收集音频文件 + CUE 文件（后台线程，避免阻塞主线程出菊花）
+        let (audioFiles, cueFiles) = await Task.detached(priority: .userInitiated) { () -> ([URL], [URL]) in
+            var audio: [URL] = []
+            var cue: [URL] = []
+            for root in roots {
+                audio.append(contentsOf: Self.collectFiles(in: root, extensions: Self.allAudioExtensions))
+                cue.append(contentsOf: Self.collectFiles(in: root, extensions: ["cue"]))
+            }
+            audio = Array(Set(audio.map { $0.standardizedFileURL }))
+            return (audio, cue)
+        }.value
 
         // 2. 解析 CUE，把整轨文件展开成分轨曲目
         var cueTracks: [AudioTrack] = []

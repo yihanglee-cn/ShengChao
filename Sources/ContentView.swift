@@ -366,23 +366,23 @@ struct ContentView: View {
                 // 会取图片像素理想尺寸（如 1342×1342）导致溢出 ZStack，翻转 .position 坐标系
                 Group {
                     if fullScreenCoverMode, let fullArt = library.currentTrack?.artwork {
-                        // SPlayer 做法：模糊封面做底层（blur 60 + 50% 黑），带封面色调
+                        // 底层：封面模糊铺满全屏，右侧歌词区背景
                         Color.black
                         Image(nsImage: fullArt)
                             .resizable()
                             .scaledToFill()
                             .blur(radius: 60)
-                            .overlay(Color.black.opacity(0.5))
-                        // 左侧 62% 清晰封面，右缘渐变淡出
+                            .overlay(Color.black.opacity(0.4))
+                        // 上层：左侧正方形封面完整清晰，右缘渐变淡出到模糊背景
                         Image(nsImage: fullArt)
                             .resizable()
-                            .scaledToFill()
-                            .frame(width: geo.size.width * 0.72, height: geo.size.height)
+                            .scaledToFit()
+                            .frame(width: geo.size.height, height: geo.size.height)
                             .mask(
                                 LinearGradient(
                                     gradient: Gradient(stops: [
                                         .init(color: .black, location: 0),
-                                        .init(color: .black, location: 0.62),
+                                        .init(color: .black, location: 0.75),
                                         .init(color: .clear, location: 1)
                                     ]),
                                     startPoint: .leading, endPoint: .trailing
