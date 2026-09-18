@@ -3,10 +3,11 @@ import AVFoundation
 
 // MARK: - 歌词行
 
-struct LyricsLine: Identifiable {
+struct LyricsLine: Identifiable, Codable {
     let id = UUID()
     let time: Double
     let text: String
+    enum CodingKeys: CodingKey { case time, text }
 }
 
 // MARK: - LRC 解析

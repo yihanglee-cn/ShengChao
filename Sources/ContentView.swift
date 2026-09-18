@@ -2,6 +2,27 @@ import SwiftUI
 import AppKit
 import AVFoundation
 
+import CoreImage
+
+/// 从 NSImage 提取平均色（主色调），用于全屏封面主题的暗色背景
+func averageColor(of nsImage: NSImage) -> Color {
+    guard let tiff = nsImage.tiffRepresentation,
+          let ci = CIImage(data: tiff) else { return .black }
+    let extent = ci.extent
+    guard extent.width > 0, extent.height > 0 else { return .black }
+    let filter = CIFilter(name: "CIAreaAverage", parameters: [
+        kCIInputImageKey: ci,
+        kCIInputExtentKey: CIVector(cgRect: extent)
+    ])
+    guard let out = filter?.outputImage else { return .black }
+    var rgba: [UInt8] = [0, 0, 0, 255]
+    CIContext().render(out, toBitmap: &rgba, rowBytes: 4,
+                      bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                      format: .RGBA8, colorSpace: nil)
+    return Color(red: Double(rgba[0])/255, green: Double(rgba[1])/255,
+                 blue: Double(rgba[2])/255, opacity: 1)
+}
+
 // MARK: - 主题（白天/夜晚）
 
 enum AppTheme {
@@ -139,6 +160,7 @@ struct ContentView: View {
     @AppStorage("energySaving") private var energySaving = false
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
+    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
 
     var body: some View {
         GeometryReader { geo in
@@ -342,11 +364,39 @@ struct ContentView: View {
                 // 背景（慢慢淡入淡出，逐渐盖住主界面玻璃栏）
                 // 必须显式约束到窗口尺寸：resizable Image + maxWidth/maxHeight .infinity
                 // 会取图片像素理想尺寸（如 1342×1342）导致溢出 ZStack，翻转 .position 坐标系
-                backgroundView
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                    .opacity(showFullCover ? 1 : 0)
-                    .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
+                Group {
+                    if fullScreenCoverMode, let fullArt = library.currentTrack?.artwork {
+                        // SPlayer 做法：模糊封面做底层（blur 60 + 50% 黑），带封面色调
+                        Color.black
+                        Image(nsImage: fullArt)
+                            .resizable()
+                            .scaledToFill()
+                            .blur(radius: 60)
+                            .overlay(Color.black.opacity(0.5))
+                        // 左侧 62% 清晰封面，右缘渐变淡出
+                        Image(nsImage: fullArt)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geo.size.width * 0.72, height: geo.size.height)
+                            .mask(
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: .black, location: 0),
+                                        .init(color: .black, location: 0.62),
+                                        .init(color: .clear, location: 1)
+                                    ]),
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    } else {
+                        backgroundView
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipped()
+                .opacity(showFullCover ? 1 : 0)
+                .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
 
                 // 封面（Hero 动画：全程不透明，只做移动+缩放）
                 // HeroCover：scaleEffect 平滑放大（视频层不跳变），视觉圆角 10→22 不变
@@ -366,7 +416,7 @@ struct ContentView: View {
                     }
                 }
                 .modifier(HeroCover(progress: showFullCover ? 1 : 0))
-                .opacity(coverVisible ? 1 : 0)
+                .opacity(fullScreenCoverMode ? 0 : (coverVisible ? 1 : 0))
                 .animation(nil, value: coverVisible)
                 .position(x: coverX, y: coverY)
                 .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
@@ -376,18 +426,18 @@ struct ContentView: View {
                 fullPlayerControls
                     .opacity(coverVisible ? 1 : 0)
                     .animation(nil, value: coverVisible)
-                    .position(x: coverX,
-                              y: min(coverY + 578 / 2 + 85, wf.height - 85))
+                    .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
+                              y: fullScreenCoverMode ? wf.height - 95 : min(coverY + 578 / 2 + 85, wf.height - 85))
 
                 // 歌词（右侧，纵向充满窗口，向右扩展）
                 if showLyrics {
-                    let lyricsLeft = wf.width / 2 + 60                       // 左边缘固定（封面右侧）
-                    let lyricsWidth = max(480, wf.width - 40 - lyricsLeft)   // 右边缘距窗口 40
+                    let lyricsLeft = wf.width / 2 + 60
+                    let lyricsWidth = max(480, wf.width - 40 - lyricsLeft)
                     lyricsPanel(height: wf.height)
                         .frame(width: lyricsWidth, height: wf.height)
                         .position(x: lyricsLeft + lyricsWidth / 2, y: wf.height / 2)
                         .transition(.opacity)
-                        .onTapGesture { }  // 点歌词区域不关闭大封面
+                        .onTapGesture { }
                 }
 
                 // 音量指示胶囊（顶端居中偏下，调音量时出现）
@@ -844,6 +894,7 @@ struct SettingsView: View {
     @AppStorage("energySaving") private var energySaving = false
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
+    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
     @AppStorage("settingsWindowOpen") private var settingsWindowOpen = false
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var hoveringClose = false
@@ -900,6 +951,23 @@ struct SettingsView: View {
                     .onChange(of: cover3DEnabled) { _, newValue in
                         if newValue { dynamicCoverEnabled = false }
                     }
+            }
+
+            // 行 4：全屏封面
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("全屏封面")
+                        .foregroundStyle(theme.primaryText)
+                    Text("专辑图铺满播放页，右侧歌词加遮罩")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryText)
+                }
+                Spacer(minLength: 12)
+                Toggle("", isOn: $fullScreenCoverMode)
+                    .toggleStyle(.switch)
+                    .tint(.blue)
+                    .accentColor(.blue)
+                    .help("全屏封面")
             }
         }
         .padding(20)
