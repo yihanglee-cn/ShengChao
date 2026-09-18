@@ -190,6 +190,8 @@ struct ContentView: View {
                                   coverNamespace: coverNamespace,
                                   showFullCover: $showFullCover,
                                   coverVisible: $coverVisible)
+                        .opacity(coverVisible ? 0 : 1)  // 全屏封面激活时隐藏整个底部控制栏
+                        .animation(nil, value: coverVisible)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 14)
                 }
