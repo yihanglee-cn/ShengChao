@@ -78,6 +78,36 @@ final class ArtworkCache {
         return img
     }
     
+    /// 获取缩略图（用于列表/小卡片，省内存）
+    /// - Parameters:
+    ///   - key: 缓存 key
+    ///   - data: 原始封面数据
+    ///   - maxSize: 缩略图最大边长（点）
+    func thumbnail(forKey key: String, data: Data, maxSize: CGFloat = 200) -> NSImage? {
+        let thumbKey = "\(key)_thumb_\(Int(maxSize))"
+        if let cached = cache.object(forKey: thumbKey as NSString) {
+            return cached
+        }
+        guard let img = NSImage(data: data) else { return nil }
+        let resized = downsampleImage(img, maxDimension: maxSize)
+        let cost = Int(resized.size.width * resized.size.height * 4)
+        cache.setObject(resized, forKey: thumbKey as NSString, cost: cost)
+        return resized
+    }
+    
+    /// 获取文件夹封面的缩略图
+    func thumbnail(forPath path: String, maxSize: CGFloat = 200) -> NSImage? {
+        let thumbKey = "\(path)_thumb_\(Int(maxSize))"
+        if let cached = cache.object(forKey: thumbKey as NSString) {
+            return cached
+        }
+        guard let img = NSImage(contentsOfFile: path) else { return nil }
+        let resized = downsampleImage(img, maxDimension: maxSize)
+        let cost = Int(resized.size.width * resized.size.height * 4)
+        cache.setObject(resized, forKey: thumbKey as NSString, cost: cost)
+        return resized
+    }
+    
     /// 清除所有缓存
     func clear() {
         cache.removeAllObjects()
@@ -110,6 +140,17 @@ struct AudioTrack: Identifiable {
         }
         if let data = artworkData {
             return ArtworkCache.shared.image(forKey: url.path, data: data)
+        }
+        return nil
+    }
+    
+    /// 缩略图（用于列表/小卡片，省内存）
+    var artworkThumbnail: NSImage? {
+        if let path = artworkPath {
+            return ArtworkCache.shared.thumbnail(forPath: path)
+        }
+        if let data = artworkData {
+            return ArtworkCache.shared.thumbnail(forKey: url.path, data: data)
         }
         return nil
     }
@@ -174,6 +215,20 @@ struct AlbumGroup: Identifiable {
         // 兜底：从第一首有封面的曲目取
         if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil }) {
             return track.artwork
+        }
+        return nil
+    }
+    
+    /// 缩略图（用于专辑列表，省内存）
+    var artworkThumbnail: NSImage? {
+        if let path = artworkPath {
+            return ArtworkCache.shared.thumbnail(forPath: path)
+        }
+        if let data = artworkData {
+            return ArtworkCache.shared.thumbnail(forKey: "album_\(id.uuidString)", data: data)
+        }
+        if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil }) {
+            return track.artworkThumbnail
         }
         return nil
     }

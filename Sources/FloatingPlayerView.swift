@@ -121,7 +121,7 @@ struct FloatingPlayerView: View {
                 if dynamicCoverEnabled, let dyn = library.currentTrack?.dynamicCoverURL {
                     DynamicCoverView(url: dyn)
                 } else {
-                    CoverArtwork(artwork: library.currentTrack?.artwork,
+                    CoverArtwork(artwork: library.currentTrack?.artworkThumbnail,
                                  fallbackName: library.currentTrack?.title ?? "music",
                                  size: 52)
                 }

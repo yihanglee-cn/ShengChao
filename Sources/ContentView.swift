@@ -428,7 +428,7 @@ struct ContentView: View {
                     } else if dynamicCoverEnabled, let dyn = library.currentTrack?.dynamicCoverURL {
                         DynamicCoverView(url: dyn)
                     } else {
-                        CoverArtwork(artwork: library.currentTrack?.artwork,
+                        CoverArtwork(artwork: library.currentTrack?.artworkThumbnail,
                                      fallbackName: library.currentTrack?.title ?? "music",
                                      size: 578)
                     }
@@ -1569,7 +1569,7 @@ struct AlbumCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            CoverArtwork(artwork: album.artwork, fallbackName: album.name, size: 44)
+            CoverArtwork(artwork: album.artworkThumbnail, fallbackName: album.name, size: 44)
                 .frame(maxWidth: .infinity)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -1779,7 +1779,7 @@ struct AlbumDetailView: View {
                     .buttonStyle(.glass)
                     .controlSize(.large)
 
-                    CoverArtwork(artwork: album.artwork, fallbackName: album.name, size: 60)
+                    CoverArtwork(artwork: album.artworkThumbnail, fallbackName: album.name, size: 60)
                         .frame(width: 90, height: 90)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
@@ -1821,7 +1821,7 @@ struct TrackRow: View {
                 library.playTrack(track)
             } label: {
                 HStack(spacing: 12) {
-                    if let art = track.artwork {
+                    if let art = track.artworkThumbnail {
                         Image(nsImage: art)
                             .resizable()
                             .scaledToFill()
@@ -2270,7 +2270,7 @@ struct NowPlayingBar: View {
                     if dynamicCoverEnabled, let dyn = library.currentTrack?.dynamicCoverURL {
                         DynamicCoverView(url: dyn)
                     } else {
-                        CoverArtwork(artwork: library.currentTrack?.artwork,
+                        CoverArtwork(artwork: library.currentTrack?.artworkThumbnail,
                                      fallbackName: library.currentTrack?.title ?? "music",
                                      size: 28)
                     }
