@@ -65,8 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.activate(ignoringOtherApps: true)
         // 每次启动重置悬浮窗开关，避免与真实窗口状态不同步
         UserDefaults.standard.set(false, forKey: "floatingOpen")
-        // 启动动画（液态玻璃音符，1.2s 后自动淡出）
-        SplashWindowController.shared.show()
+        // 启动动画已移除
     }
 }
 
