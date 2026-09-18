@@ -1622,11 +1622,19 @@ struct TrackRow: View {
                 library.playTrack(track)
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: library.currentTrack?.id == track.id
-                          ? "speaker.wave.2.fill" : "music.note")
-                        .foregroundStyle(library.currentTrack?.id == track.id
-                                         ? theme.primaryText : theme.secondaryText)
-                        .frame(width: 20)
+                    if let art = track.artwork {
+                        Image(nsImage: art)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 40, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    } else {
+                        Image(systemName: library.currentTrack?.id == track.id
+                              ? "speaker.wave.2.fill" : "music.note")
+                            .foregroundStyle(library.currentTrack?.id == track.id
+                                             ? theme.primaryText : theme.secondaryText)
+                            .frame(width: 40, height: 40)
+                    }
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
