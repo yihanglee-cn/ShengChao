@@ -248,7 +248,7 @@ struct ContentView: View {
             if !showing {
                 controlsVisible = true
                 autoHideTask?.cancel()
-                NSCursor.unhide()
+                
             }
             if showing {
                 coverVisible = true
@@ -263,6 +263,22 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            // app 失去焦点时自动恢复鼠标（防止切换到其他应用鼠标消失）
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                
+            }
+            // 窗口最小化时也恢复鼠标
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didMiniaturizeNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                
+            }
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
                 // 文本输入框聚焦时不拦截，空格/方向键正常输入
                 if let fr = NSApp.keyWindow?.firstResponder,
@@ -496,18 +512,18 @@ struct ContentView: View {
             case .active:
                 // 鼠标移动：显示控制区，重置 2 秒自动隐藏
                 controlsVisible = true
-                NSCursor.unhide()
+                
                 autoHideTask?.cancel()
                 autoHideTask = Task {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     if !Task.isCancelled {
                         controlsVisible = false
-                        NSCursor.hide()
+                        
                     }
                 }
             case .ended:
                 controlsVisible = true
-                NSCursor.unhide()
+                
             }
         }
         .onTapGesture {
@@ -515,13 +531,13 @@ struct ContentView: View {
                 showFullCover = false
                 showLyrics = false
             }
-            NSCursor.unhide()
+            
         }
         .allowsHitTesting(showFullCover)
         .ignoresSafeArea()
     }
 
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     // 窗口化时顶部标题栏高度（全屏为 0），「词」按钮用它保持相对窗口最顶边的固定位置
     private var windowTopInset: CGFloat {
@@ -925,7 +941,7 @@ struct SettingsPanel: View {
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
     @State private var hoveringClose = false
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -1129,7 +1145,7 @@ struct SettingsView: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var hoveringClose = false
     @State private var hoverReady = false
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         VStack(spacing: 18) {
@@ -1251,7 +1267,7 @@ struct Sidebar: View {
     @Binding var selected: String
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
     @State private var playlistsExpanded = false
     @State private var showNewPlaylistAlert = false
     @State private var newPlaylistName = ""
@@ -1430,7 +1446,7 @@ struct MainArea: View {
     @ObservedObject var library: AudioLibrary
     let selectedSection: String
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         Group {
@@ -1465,7 +1481,7 @@ struct MainArea: View {
 struct EmptyLibraryView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -1503,7 +1519,7 @@ struct EmptyLibraryView: View {
 struct AlbumGridView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     private let columns = [
         GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 16)
@@ -1565,7 +1581,7 @@ struct AlbumCard: View {
     let album: AlbumGroup
     var onPlay: () -> Void = {}
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1763,7 +1779,7 @@ struct AlbumDetailView: View {
     let album: AlbumGroup
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         ScrollView {
@@ -1813,7 +1829,7 @@ struct TrackRow: View {
     let track: AudioTrack
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1892,7 +1908,7 @@ struct PlaylistTrackRow: View {
     let playlist: Playlist
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1949,7 +1965,7 @@ struct PlaylistTrackRow: View {
 struct SongListView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
     @State private var searchText = ""
 
     private var filteredTracks: [AudioTrack] {
@@ -2009,7 +2025,7 @@ struct SongListView: View {
 struct RecentListView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         ScrollView {
@@ -2050,7 +2066,7 @@ struct RecentListView: View {
 struct ArtistListView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
     @State private var selectedArtist: String?
 
     private var artistNames: [String] {
@@ -2142,7 +2158,7 @@ struct ArtistListView: View {
 struct FavoritesView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         ScrollView {
@@ -2184,7 +2200,7 @@ struct FavoritesView: View {
 struct PlaylistView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
 
     var body: some View {
         ScrollView {
@@ -2257,7 +2273,7 @@ struct NowPlayingBar: View {
     @Binding var coverVisible: Bool
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    private var theme: AppTheme { nightMode ? .night : .day }
+            private var theme: AppTheme { nightMode ? .night : .day }
     @State private var seekPosition: Double = 0
     @State private var isDragging = false
     @State private var isVolumeDragging = false
