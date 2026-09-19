@@ -353,8 +353,14 @@ final class AudioLibrary: ObservableObject {
     @Published var liveBitrate: Int?
     @Published var lyricsDownloading = false
     @Published var lyricsDownloadAlbumID: UUID?
-    @Published var volume: Double = 0.6 {
-        didSet { playerNode.volume = Float(volume) }
+    @Published var volume: Double = {
+        if let v = UserDefaults.standard.object(forKey: "volume") as? Double { return v }
+        return 0.6
+    }() {
+        didSet {
+            playerNode.volume = Float(volume)
+            UserDefaults.standard.set(volume, forKey: "volume")
+        }
     }
     @Published var playQueue: [AudioTrack] = []
     enum PlaybackMode: String { case off, all, one, shuffle }
@@ -380,6 +386,7 @@ final class AudioLibrary: ObservableObject {
             playlists = decoded
         }
         setupEngine()
+        playerNode.volume = Float(volume)  // 恢复上次音量（didSet 在初始化时不触发）
     }
 
     deinit {

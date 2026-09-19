@@ -127,6 +127,16 @@ final class CoverFrameStore: ObservableObject {
     @Published var smallCoverFrame: CGRect = .zero
 }
 
+/// 列表滚动位置记忆（进详情返回后恢复滚动位置）
+final class ScrollPositionStore {
+    static let shared = ScrollPositionStore()
+    var songListVisibleID: AudioTrack.ID?
+    var favoritesVisibleID: AudioTrack.ID?
+    var albumGridVisibleID: AlbumGroup.ID?
+    var artistTracksVisibleID: AudioTrack.ID?
+    private init() {}
+}
+
 // 大封面 Hero 动画时长（原 4s，提速 9.2 倍）
 private let coverAnimationDuration: Double = 4.0 / 9.2
 
@@ -1462,12 +1472,19 @@ struct MainArea: View {
             case "播放列表":
                 PlaylistView(library: library)
             default:
-                if let album = library.selectedAlbum {
-                    AlbumDetailView(album: album, library: library)
-                } else if library.albums.isEmpty {
-                    EmptyLibraryView(library: library)
-                } else {
-                    AlbumGridView(library: library)
+                ZStack {
+                    if library.albums.isEmpty {
+                        EmptyLibraryView(library: library)
+                    } else {
+                        // 网格永远留在底层，仅透明度切换 → 滚动位置自然保留
+                        AlbumGridView(library: library)
+                            .opacity(library.selectedAlbum == nil ? 1 : 0)
+                            .allowsHitTesting(library.selectedAlbum == nil)
+                    }
+                    // 详情页透明，露出主区域玻璃背景，视觉与列表一致
+                    if let album = library.selectedAlbum {
+                        AlbumDetailView(album: album, library: library)
+                    }
                 }
             }
         }
@@ -1520,6 +1537,7 @@ struct AlbumGridView: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
             private var theme: AppTheme { nightMode ? .night : .day }
+    @State private var position = ScrollPosition(idType: AlbumGroup.ID.self)
 
     private let columns = [
         GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 16)
@@ -1570,8 +1588,22 @@ struct AlbumGridView: View {
                 }
             }
             .padding(18)
+            .scrollTargetLayout()
         }
         .background(ScrollbarStyler())
+        .scrollPosition($position)
+        .onChange(of: position.viewID(type: AlbumGroup.ID.self)) { _, newID in
+            if let newID {
+                ScrollPositionStore.shared.albumGridVisibleID = newID
+            }
+        }
+        .onAppear {
+            if let id = ScrollPositionStore.shared.albumGridVisibleID {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    position.scrollTo(id: id, anchor: .top)
+                }
+            }
+        }
     }
 }
 
@@ -1967,6 +1999,7 @@ struct SongListView: View {
     @AppStorage("nightMode") private var nightMode = true
             private var theme: AppTheme { nightMode ? .night : .day }
     @State private var searchText = ""
+    @State private var position = ScrollPosition(idType: AudioTrack.ID.self)
 
     private var filteredTracks: [AudioTrack] {
         guard !searchText.isEmpty else { return library.tracks }
@@ -2015,8 +2048,22 @@ struct SongListView: View {
                 }
             }
             .padding(18)
+            .scrollTargetLayout()
         }
         .background(ScrollbarStyler())
+        .scrollPosition($position)
+        .onChange(of: position.viewID(type: AudioTrack.ID.self)) { _, newID in
+            if searchText.isEmpty, let newID {
+                ScrollPositionStore.shared.songListVisibleID = newID
+            }
+        }
+        .onAppear {
+            if let id = ScrollPositionStore.shared.songListVisibleID {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    position.scrollTo(id: id, anchor: .top)
+                }
+            }
+        }
     }
 }
 
