@@ -777,6 +777,7 @@ final class AudioLibrary: ObservableObject {
         }
 
         // 7. 分组 + 排序 + 播放队列
+                    ArtworkCache.shared.clear()
         let sortedAlbums = rebuild(from: allTracks)
 
         // 8. 落盘缓存（后台线程：写内嵌封面文件 + 元数据索引）
@@ -884,12 +885,14 @@ final class AudioLibrary: ObservableObject {
             let diskName = Self.artworkDiskName(for: track)
             let url = dir.appendingPathComponent(diskName)
             // 只要新封面数据和磁盘上的不同就重写（封面被用户修改过）
-            let diskSize = (try? fm.attributesOfItem(atPath: url.path))
-                .flatMap { $0[.size] as? Int } ?? 0
-            guard diskSize != data.count else { continue }
+            if let oldData = try? Data(contentsOf: url), oldData == data { continue }
             try? data.write(to: url, options: .atomic)
             // 封面更新了，删除旧缩略图，下次访问重新生成
-            try? fm.removeItem(at: dir.appendingPathComponent("thumb_200_" + diskName))
+            if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                for file in files where file.lastPathComponent.hasPrefix("thumb_") && file.lastPathComponent.hasSuffix("_" + diskName) {
+                    try? fm.removeItem(at: file)
+                }
+            }
         }
     }
 
