@@ -399,6 +399,8 @@ final class AudioLibrary: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
+    /// 播放代际：play/seek 时自增，批量调度回调里检查是否过期
+    private var playGeneration = 0
     /// 引擎配置变化（音频设备切换）通知观察者
     private var configChangeObserver: NSObjectProtocol?
     /// 配置变化处理节流时间戳（同一变化可能连发多个通知）
@@ -490,6 +492,7 @@ final class AudioLibrary: ObservableObject {
             let file = try AVAudioFile(forReading: track.url)
             let sampleRate = file.processingFormat.sampleRate
             let clamped = max(0, min(resumeTime, max(track.duration, 0)))
+            playGeneration += 1
             playerNode.stop()
             let startFrame = AVAudioFramePosition((track.startOffset + clamped) * sampleRate)
             // 与 seek 一致：frameCount 用分轨剩余帧数（CUE 分轨不越界）
@@ -1241,15 +1244,20 @@ final class AudioLibrary: ObservableObject {
     /// 源文件可能是任意采样率/声道（如单声道 FLAC、96kHz WAV），
     /// 统一经 AVAudioConverter 转为播放节点输出格式后再 scheduleBuffer，
     /// 避免 scheduleSegment 对声道/采样率不匹配崩溃。
+    /// 将文件的一段（含格式转换）批量流式调度到播放节点。
+    /// 每批 ~2 秒音频（54 块），播完一批的回调里再调度下一批，
+    /// 队列里同时只保留 ~2 秒 PCM（<10MB），而非整首歌（100MB+）。
     private func scheduleSegment(file: AVAudioFile,
                                  startFrame: AVAudioFramePosition,
                                  frameCount: AVAudioFramePosition,
                                  completion: @escaping () -> Void) {
+        playGeneration += 1
+        let gen = playGeneration
+
         let srcFormat = file.processingFormat
         let dstFormat = playerNode.outputFormat(forBus: 0)
         let needsConversion = srcFormat != dstFormat
 
-        // 定位到起始帧
         file.framePosition = startFrame
         let remainingFrames = min(frameCount, file.length - startFrame)
 
@@ -1259,102 +1267,114 @@ final class AudioLibrary: ObservableObject {
         }
 
         let capacity: AVAudioFrameCount = 16384
-        var scheduled = AVAudioFramePosition(0)
+        let batchBlocks = 54  // ~2 秒
+        var scheduled: AVAudioFramePosition = 0
 
         if !needsConversion {
-            // 格式相同：直接分块读取调度（最后一块挂播完回调）
-            var lastBuf: AVAudioPCMBuffer?
-            while scheduled < remainingFrames {
-                let toRead = AVAudioFrameCount(min(Int(capacity), Int(remainingFrames - scheduled)))
-                guard let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: toRead) else {
+            func scheduleBatch() {
+                guard gen == playGeneration else { return }
+                var lastBuf: AVAudioPCMBuffer?
+                var blocksInBatch = 0
+                while blocksInBatch < batchBlocks && scheduled < remainingFrames {
+                    let framesLeft = remainingFrames - scheduled
+                    let toRead = AVAudioFrameCount(min(Int(capacity), Int(framesLeft)))
+                    guard let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: toRead) else {
+                        completion(); return
+                    }
+                    do { try file.read(into: srcBuf, frameCount: toRead) } catch {
+                        completion(); return
+                    }
+                    guard srcBuf.frameLength > 0 else { break }
+                    scheduled += AVAudioFramePosition(srcBuf.frameLength)
+                    if let prev = lastBuf {
+                        playerNode.scheduleBuffer(prev, at: nil, options: [], completionHandler: nil)
+                    }
+                    lastBuf = srcBuf
+                    blocksInBatch += 1
+                }
+                if let lastBuf {
+                    let isLast = scheduled >= remainingFrames
+                    playerNode.scheduleBuffer(lastBuf, at: nil, options: []) {
+                        guard gen == self.playGeneration else { return }
+                        Task { @MainActor in
+                            guard gen == self.playGeneration else { return }
+                            if isLast { completion() } else { scheduleBatch() }
+                        }
+                    }
+                } else {
                     completion()
-                    return
                 }
-                do {
-                    try file.read(into: srcBuf, frameCount: toRead)
-                } catch {
-                    completion()
-                    return
-                }
-                guard srcBuf.frameLength > 0 else { break }
-                scheduled += AVAudioFramePosition(srcBuf.frameLength)
-                if let prev = lastBuf {
-                    playerNode.scheduleBuffer(prev, at: nil, options: [], completionHandler: nil)
-                }
-                lastBuf = srcBuf
             }
-            if let lastBuf {
-                playerNode.scheduleBuffer(lastBuf, at: nil, options: [],
-                                          completionHandler: completion)
-            } else {
-                completion()
-            }
+            scheduleBatch()
             return
         }
 
-        // 需要格式转换：AVAudioConverter 逐块转换调度
+        // 需要格式转换
         guard let converter = AVAudioConverter(from: srcFormat, to: dstFormat) else {
             completion()
             return
         }
-        var finished = false
-        var completionAttached = false
-        while !finished {
-            guard let outBuf = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: capacity) else {
+        func scheduleConvertedBatch() {
+            guard gen == playGeneration else { return }
+            var lastBuf: AVAudioPCMBuffer?
+            var blocksInBatch = 0
+            var batchFinished = false
+            var completionAttached = false
+            while blocksInBatch < batchBlocks && !batchFinished {
+                guard let outBuf = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: capacity) else {
+                    completion(); return
+                }
+                outBuf.frameLength = 0
+                var convErr: NSError?
+                let status = converter.convert(to: outBuf, error: &convErr) { _, outStatus in
+                    let framesLeft = remainingFrames - scheduled
+                    let toRead = AVAudioFrameCount(min(Int(capacity), Int(framesLeft)))
+                    guard toRead > 0,
+                          let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: toRead) else {
+                        outStatus.pointee = .endOfStream
+                        return nil
+                    }
+                    do { try file.read(into: srcBuf, frameCount: toRead) } catch {
+                        outStatus.pointee = .endOfStream
+                        return nil
+                    }
+                    scheduled += AVAudioFramePosition(srcBuf.frameLength)
+                    guard srcBuf.frameLength > 0 else {
+                        outStatus.pointee = .endOfStream
+                        return nil
+                    }
+                    outStatus.pointee = .haveData
+                    return srcBuf
+                }
+                if status == .error || convErr != nil {
+                    if !completionAttached { completion() }
+                    return
+                }
+                if outBuf.frameLength > 0 {
+                    if let prev = lastBuf {
+                        playerNode.scheduleBuffer(prev, at: nil, options: [], completionHandler: nil)
+                    }
+                    lastBuf = outBuf
+                    blocksInBatch += 1
+                }
+                if status == .endOfStream { batchFinished = true }
+            }
+            if let lastBuf {
+                let isLast = scheduled >= remainingFrames
+                playerNode.scheduleBuffer(lastBuf, at: nil, options: []) {
+                    guard gen == self.playGeneration else { return }
+                    Task { @MainActor in
+                        guard gen == self.playGeneration else { return }
+                        if isLast { completion() } else { scheduleConvertedBatch() }
+                    }
+                }
+                completionAttached = true
+            }
+            if !completionAttached {
                 completion()
-                return
-            }
-            outBuf.frameLength = 0
-            var convErr: NSError?
-            let status = converter.convert(to: outBuf, error: &convErr) { _, outStatus in
-                let toRead = AVAudioFrameCount(min(Int(capacity), Int(remainingFrames - scheduled)))
-                guard toRead > 0,
-                      let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: toRead) else {
-                    outStatus.pointee = .endOfStream
-                    return nil
-                }
-                do {
-                    try file.read(into: srcBuf, frameCount: toRead)
-                } catch {
-                    outStatus.pointee = .endOfStream
-                    return nil
-                }
-                scheduled += AVAudioFramePosition(srcBuf.frameLength)
-                guard srcBuf.frameLength > 0 else {
-                    outStatus.pointee = .endOfStream
-                    return nil
-                }
-                outStatus.pointee = .haveData
-                return srcBuf
-            }
-            if status == .error || convErr != nil {
-                if !completionAttached { completion() }
-                return
-            }
-            if outBuf.frameLength > 0 {
-                if status == .endOfStream {
-                    playerNode.scheduleBuffer(outBuf, at: nil, options: [], completionHandler: completion)
-                    completionAttached = true
-                } else {
-                    playerNode.scheduleBuffer(outBuf, at: nil, options: [], completionHandler: nil)
-                }
-            }
-            // .inputRanDry：输入耗尽但 converter 内部缓冲可能未 flush 完，继续循环
-            if status == .endOfStream {
-                finished = true
             }
         }
-        // 最后一段音频可能以 .haveData/.inputRanDry 输出（.endOfStream 返回空）→
-        // 播完回调未挂上：补一个 0 帧 buffer 排在队列末尾挂回调，
-        // 最后一段播完的瞬间触发（不会提前切歌）
-        if !completionAttached {
-            if let tail = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: 1) {
-                tail.frameLength = 0
-                playerNode.scheduleBuffer(tail, at: nil, options: [], completionHandler: completion)
-            } else {
-                completion()
-            }
-        }
+        scheduleConvertedBatch()
     }
 
     func play(_ track: AudioTrack) {
@@ -1391,6 +1411,7 @@ final class AudioLibrary: ObservableObject {
         }
 
         do {
+            playGeneration += 1
             playerNode.stop()
             let file = try AVAudioFile(forReading: effectiveTrack.url)
             let srcFormat = file.processingFormat
@@ -1446,6 +1467,7 @@ final class AudioLibrary: ObservableObject {
         do {
             let file = try AVAudioFile(forReading: track.url)
             let sampleRate = file.processingFormat.sampleRate
+            playGeneration += 1
             playerNode.stop()
             let startFrame = AVAudioFramePosition((track.startOffset + clamped) * sampleRate)
             // 关键：frameCount 用「分轨剩余帧数」而非分轨总帧数——
