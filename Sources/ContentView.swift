@@ -1312,6 +1312,8 @@ struct Sidebar: View {
                         .foregroundStyle(selected == item.name ? theme.primaryText : theme.secondaryText)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                         .background {
                             if selected == item.name {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1374,6 +1376,7 @@ struct Sidebar: View {
                     Text(item.name)
                     Spacer()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1420,6 +1423,8 @@ struct Sidebar: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 7)
                     .padding(.leading, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                     .background {
                         if library.selectedPlaylist?.id == playlist.id {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1442,6 +1447,8 @@ struct Sidebar: View {
                 .font(.body)
                 .foregroundStyle(theme.secondaryText)
                 .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
                 .padding(.vertical, 7)
                 .padding(.leading, 12)
             }
