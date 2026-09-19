@@ -404,7 +404,25 @@ struct ContentView: View {
                                 LinearGradient(
                                     gradient: Gradient(stops: [
                                         .init(color: .black, location: 0),
-                                        .init(color: .black, location: 0.75),
+                                        .init(color: .black, location: 0.58),
+                                        .init(color: .black.opacity(0.62), location: 0.78),
+                                        .init(color: .clear, location: 1)
+                                    ]),
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                        Image(nsImage: fullArt)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: geo.size.height, height: geo.size.height)
+                            .blur(radius: 18)
+                            .mask(
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: .clear, location: 0),
+                                        .init(color: .clear, location: 0.60),
+                                        .init(color: .black.opacity(0.42), location: 0.78),
                                         .init(color: .clear, location: 1)
                                     ]),
                                     startPoint: .leading, endPoint: .trailing
