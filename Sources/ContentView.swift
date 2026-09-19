@@ -420,6 +420,22 @@ struct ContentView: View {
                 .opacity(showFullCover ? 1 : 0)
                 .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
 
+                if showFullCover && fullScreenCoverMode {
+                    LinearGradient(
+                        colors: [
+                            .clear,
+                            Color.black.opacity(0.22),
+                            Color.black.opacity(0.58)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 280)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+
                 // 封面（Hero 动画：全程不透明，只做移动+缩放）
                 // HeroCover：scaleEffect 平滑放大（视频层不跳变），视觉圆角 10→22 不变
                 Group {
@@ -637,6 +653,7 @@ struct ContentView: View {
             }
         }
         .frame(width: 578)
+        .shadow(color: fullScreenCoverMode ? .black.opacity(0.60) : .clear, radius: 4, y: 1)
         .contentShape(Rectangle())
         .onTapGesture { }   // 吞掉点击，不触发关闭播放页
     }
