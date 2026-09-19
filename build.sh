@@ -99,7 +99,7 @@ cat > "${BUNDLE}/Contents/Info.plist" <<'PLIST'
 PLIST
 
 echo "==> ad-hoc 签名（未签名 app 图标可能不显示）"
-codesign --force --deep --sign - "${BUNDLE}" 2>&1 || echo "(签名跳过)"
+codesign --force --deep --sign "ShengChao Local Dev" "${BUNDLE}" 2>&1 || echo "(签名跳过)"
 
 echo "==> 同步到桌面 & Applications"
 DEST_DESKTOP="$HOME/Desktop/${APP_NAME}.app"
@@ -110,12 +110,12 @@ pkill -f "${EXEC_NAME}" 2>/dev/null || true
 
 rm -rf "${DEST_DESKTOP}"
 ditto "${BUNDLE}" "${DEST_DESKTOP}"
-codesign --force --deep --sign - "${DEST_DESKTOP}" 2>&1 || echo "(桌面签名跳过)"
+codesign --force --deep --sign "ShengChao Local Dev" "${DEST_DESKTOP}" 2>&1 || echo "(桌面签名跳过)"
 
 if [ -w /Applications ]; then
   rm -rf "${DEST_APPS}"
   ditto "${BUNDLE}" "${DEST_APPS}"
-  codesign --force --deep --sign - "${DEST_APPS}" 2>&1 || echo "(Applications 签名跳过)"
+  codesign --force --deep --sign "ShengChao Local Dev" "${DEST_APPS}" 2>&1 || echo "(Applications 签名跳过)"
 else
   echo "(Applications 无写权限，跳过)"
 fi
