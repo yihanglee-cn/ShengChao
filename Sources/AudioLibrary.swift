@@ -872,16 +872,21 @@ final class AudioLibrary: ObservableObject {
         return digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
     }
 
-    /// 把内嵌封面写盘（相同大小的文件已存在则跳过，避免每次启动重复写盘）
+    /// 把内嵌封面写盘（文件变化时覆盖写，并删除旧缩略图缓存）
     private static nonisolated func persistArtworkFiles(_ tracks: [AudioTrack]) {
         let fm = FileManager.default
+        let dir = ArtworkCache.diskArtworkDirectory
         for track in tracks {
             guard let data = track.artworkData, !data.isEmpty else { continue }
-            let url = ArtworkCache.diskArtworkDirectory
-                .appendingPathComponent(Self.artworkDiskName(for: track))
-            if let attrs = try? fm.attributesOfItem(atPath: url.path),
-               let size = attrs[.size] as? Int, size == data.count { continue }
+            let diskName = Self.artworkDiskName(for: track)
+            let url = dir.appendingPathComponent(diskName)
+            // 只要新封面数据和磁盘上的不同就重写（封面被用户修改过）
+            let diskSize = (try? fm.attributesOfItem(atPath: url.path))
+                .flatMap { $0[.size] as? Int } ?? 0
+            guard diskSize != data.count else { continue }
             try? data.write(to: url, options: .atomic)
+            // 封面更新了，删除旧缩略图，下次访问重新生成
+            try? fm.removeItem(at: dir.appendingPathComponent("thumb_200_" + diskName))
         }
     }
 
