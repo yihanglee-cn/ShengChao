@@ -2272,6 +2272,13 @@ struct NowPlayingBar: View {
     @State private var isDragging = false
     @State private var isVolumeDragging = false
 
+    private func openFullCover() {
+        guard library.currentTrack != nil else { return }
+        withAnimation(.easeInOut(duration: coverAnimationDuration)) {
+            showFullCover = true
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // 左栏：封面 + 歌曲信息
@@ -2300,9 +2307,7 @@ struct NowPlayingBar: View {
                     })
                     .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .onTapGesture {
-                        withAnimation(.easeInOut(duration: coverAnimationDuration)) {
-                            showFullCover = true
-                        }
+                        openFullCover()
                     }
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -2428,6 +2433,10 @@ struct NowPlayingBar: View {
                     seekPosition = t
                 }
             }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            openFullCover()
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
