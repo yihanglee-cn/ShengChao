@@ -2376,7 +2376,17 @@ struct NowPlayingBar: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // 中栏：播放控制（固定中央，圆形液态玻璃）
-            HStack(spacing: 24) {
+            HStack(spacing: 18) {
+                Button { library.cyclePlaybackMode() } label: {
+                    Image(systemName: library.playbackMode == .one ? "repeat.1" :
+                                          library.playbackMode == .shuffle ? "shuffle" : "repeat")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(library.playbackMode == .off ? theme.tertiaryText : theme.primaryText)
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.clear, in: Circle())
+                }
+                .buttonStyle(.plain)
+
                 Button { library.previous() } label: {
                     Image(systemName: "backward.fill")
                         .font(.title2.weight(.semibold))
@@ -2406,8 +2416,22 @@ struct NowPlayingBar: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(library.tracks.isEmpty)
+
+                Button {
+                    if let track = library.currentTrack {
+                        library.toggleFavorite(track)
+                    }
+                } label: {
+                    Image(systemName: library.currentTrack.map { library.isFavorite($0) } == true ? "heart.fill" : "heart")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(library.currentTrack.map { library.isFavorite($0) } == true ? .red : theme.primaryText)
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.clear, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(library.currentTrack == nil)
             }
-            .frame(width: 215)
+            .frame(width: 315)
 
             // 右栏：进度（可拖动） + 音量
             HStack(spacing: 14) {
