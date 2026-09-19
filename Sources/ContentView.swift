@@ -153,8 +153,6 @@ struct LyricMidKey: PreferenceKey {
 struct ContentView: View {
     @ObservedObject private var library = AudioLibrary.shared
     @State private var selectedSidebar = "专辑"
-    @State private var rotationAngle: Double = 0
-    @State private var rotationTimer: Timer?
     @State private var showFullCover = false
     @State private var showLyrics = false
     @State private var coverVisible = false  // 大封面层可见性（关闭时延迟隐藏，保证回程动画可见）
@@ -170,7 +168,6 @@ struct ContentView: View {
     @State private var keyMonitor: Any? = nil
     @Namespace private var coverNamespace
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("energySaving") private var energySaving = false
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
@@ -239,21 +236,6 @@ struct ContentView: View {
             .background(backgroundView)
         }
         .environment(\.theme, nightMode ? .night : .day)
-        .onChange(of: library.isPlaying) { playing in
-            if playing && !energySaving {
-                startRotation()
-            } else {
-                stopRotation()
-            }
-        }
-        .onChange(of: energySaving) { saving in
-            if saving {
-                stopRotation()
-                rotationAngle = 0
-            } else if library.isPlaying {
-                startRotation()
-            }
-        }
         .onChange(of: showFullCover) { showing in
             if !showing {
                 controlsVisible = true
@@ -345,14 +327,6 @@ struct ContentView: View {
         }
     }
 
-    private func startRotation() {
-        guard !energySaving else { return }
-        rotationTimer?.invalidate()
-        rotationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
-            rotationAngle = (rotationAngle + 0.3).truncatingRemainder(dividingBy: 360)
-        }
-    }
-
     // 大封面界面：方向键调音量时在顶端显示音量胶囊，1.6s 后自动淡出
     private func showVolumeIndicator() {
         guard showFullCover else { return }
@@ -369,11 +343,6 @@ struct ContentView: View {
         }
     }
 
-    private func stopRotation() {
-        rotationTimer?.invalidate()
-        rotationTimer = nil
-    }
-
     @ViewBuilder
     private var backgroundView: some View {
         if let artwork = library.currentTrack?.artwork {
@@ -384,7 +353,6 @@ struct ContentView: View {
                 .blur(radius: 22)
                 .overlay(Color.black.opacity(0.6))
                 .scaleEffect(1.5)
-                .rotationEffect(.degrees(rotationAngle))
                 .compositingGroup()
                 .ignoresSafeArea()
         } else {
@@ -724,7 +692,9 @@ struct ContentView: View {
                     }
                 }
                 .onPreferenceChange(LyricMidKey.self) { dict in
-                    lyricMids = dict
+                    if lyricMids != dict {
+                        lyricMids = dict
+                    }
                 }
                 // 顶部/底部留出半屏高度的空白，保证高亮行（含第一行/最后一行）始终能滚动到面板中央
                 .padding(.top, max(halfHeight - 32, 24))
@@ -946,7 +916,6 @@ struct TopBar: View {
 struct SettingsPanel: View {
     @Binding var showSettings: Bool
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("energySaving") private var energySaving = false
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
@@ -966,27 +935,7 @@ struct SettingsPanel: View {
 
             // 设置面板本体
             VStack(spacing: 18) {
-                // 行 1：节能模式
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("节能模式")
-                            .foregroundStyle(theme.primaryText)
-                        Text("关闭背景专辑封面旋转")
-                            .font(.caption)
-                            .foregroundStyle(theme.secondaryText)
-                    }
-                    Spacer(minLength: 12)
-                    Toggle("", isOn: $energySaving)
-                        .toggleStyle(.switch)
-                        .tint(.blue)
-                        .accentColor(.blue)
-                        .help("节能模式")
-                        .onChange(of: energySaving) { _, newValue in
-                            if newValue { cover3DEnabled = false }
-                        }
-                }
-
-                // 行 2：动态封面
+                // 行 1：动态封面
                 HStack(spacing: 12) {
                     Text("动态封面")
                         .foregroundStyle(theme.primaryText)
@@ -1001,7 +950,7 @@ struct SettingsPanel: View {
                         }
                 }
 
-                // 行 3：3D 封面
+                // 行 2：3D 封面
                 HStack(spacing: 12) {
                     Text("3D 封面")
                         .foregroundStyle(theme.primaryText)
@@ -1016,7 +965,7 @@ struct SettingsPanel: View {
                         }
                 }
 
-                // 行 4：全屏封面
+                // 行 3：全屏封面
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("全屏封面")
@@ -1147,7 +1096,6 @@ struct SettingsWindowConfigurator: NSViewRepresentable {
 struct SettingsView: View {
     @ObservedObject private var library = AudioLibrary.shared
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("energySaving") private var energySaving = false
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
@@ -1159,27 +1107,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            // 行 1：节能模式（文字左、开关右）
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("节能模式")
-                        .foregroundStyle(theme.primaryText)
-                    Text("关闭背景专辑封面旋转")
-                        .font(.caption)
-                        .foregroundStyle(theme.secondaryText)
-                }
-                Spacer(minLength: 12)
-                Toggle("", isOn: $energySaving)
-                    .toggleStyle(.switch)
-                    .tint(.blue)
-                    .accentColor(.blue)
-                    .help("节能模式")
-                    .onChange(of: energySaving) { _, newValue in
-                        if newValue { cover3DEnabled = false }  // 节能开启时自动关闭 3D 封面
-                    }
-            }
-
-            // 行 2：动态封面
+            // 行 1：动态封面
             HStack(spacing: 12) {
                 Text("动态封面")
                     .foregroundStyle(theme.primaryText)
@@ -1194,7 +1122,7 @@ struct SettingsView: View {
                     }
             }
 
-            // 行 3：3D 封面
+            // 行 2：3D 封面
             HStack(spacing: 12) {
                 Text("3D 封面")
                     .foregroundStyle(theme.primaryText)
@@ -1209,7 +1137,7 @@ struct SettingsView: View {
                     }
             }
 
-            // 行 4：全屏封面
+                    // 行 3：全屏封面
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("全屏封面")
