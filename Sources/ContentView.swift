@@ -1811,7 +1811,7 @@ struct AlbumDetailView: View {
                     Spacer()
                 }
 
-                VStack(spacing: 6) {
+                LazyVStack(spacing: 6) {
                     ForEach(album.tracks) { track in
                         TrackRow(track: track, library: library)
                     }
@@ -2007,7 +2007,7 @@ struct SongListView: View {
                         .foregroundStyle(theme.secondaryText)
                         .padding(.top, 20)
                 } else {
-                    VStack(spacing: 6) {
+                    LazyVStack(spacing: 6) {
                         ForEach(filteredTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2048,7 +2048,7 @@ struct RecentListView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                 } else {
-                    VStack(spacing: 6) {
+                    LazyVStack(spacing: 6) {
                         ForEach(library.recentTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2105,7 +2105,7 @@ struct ArtistListView: View {
                         Spacer()
                     }
 
-                    VStack(spacing: 6) {
+                    LazyVStack(spacing: 6) {
                         ForEach(selectedTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2118,7 +2118,7 @@ struct ArtistListView: View {
                         .font(.subheadline)
                         .foregroundStyle(theme.secondaryText)
 
-                    VStack(spacing: 6) {
+                    LazyVStack(spacing: 6) {
                         ForEach(artistNames, id: \.self) { artist in
                             Button {
                                 selectedArtist = artist
@@ -2182,7 +2182,7 @@ struct FavoritesView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                 } else {
-                    VStack(spacing: 6) {
+                    LazyVStack(spacing: 6) {
                         ForEach(library.favoriteTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2241,7 +2241,7 @@ struct PlaylistView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 60)
                     } else {
-                        VStack(spacing: 6) {
+                        LazyVStack(spacing: 6) {
                             ForEach(playlistTracks) { track in
                                 PlaylistTrackRow(track: track, playlist: playlist, library: library)
                             }

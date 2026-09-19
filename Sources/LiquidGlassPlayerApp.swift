@@ -65,7 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.activate(ignoringOtherApps: true)
         // 每次启动重置悬浮窗开关，避免与真实窗口状态不同步
         UserDefaults.standard.set(false, forKey: "floatingOpen")
-        // 启动动画已移除
+        // 启动时自动恢复曲库：磁盘缓存秒开 + 后台增量扫描（无需手动重新扫描）
+        Task { @MainActor in
+            await AudioLibrary.shared.autoRestore()
+        }
     }
 }
 

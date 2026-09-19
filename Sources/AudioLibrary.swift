@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AudioToolbox
 import CoreGraphics
+import CryptoKit
 
 // MARK: - 封面降采样工具
 
@@ -77,6 +78,56 @@ final class ArtworkCache {
         cache.setObject(img, forKey: path as NSString, cost: cost)
         return img
     }
+
+    /// 曲库缓存的内嵌封面落盘目录（Application Support/ShengChao/artwork）
+    static let diskArtworkDirectory: URL = {
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let dir = base.appendingPathComponent("ShengChao/artwork", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    /// 从曲库缓存封面文件加载并缓存（内嵌封面落盘后，重启无需重读音频）
+    func image(forKey key: String, diskName: String) -> NSImage? {
+        if let cached = cache.object(forKey: key as NSString) {
+            return cached
+        }
+        let url = Self.diskArtworkDirectory.appendingPathComponent(diskName)
+        guard let data = try? Data(contentsOf: url), let img = NSImage(data: data) else { return nil }
+        let cost = Int(img.size.width * img.size.height * 4)
+        cache.setObject(img, forKey: key as NSString, cost: cost)
+        return img
+    }
+    
+    /// 曲库缓存封面文件的缩略图（首次生成后落盘，滚动列表只读小图，避免反复解码大封面）
+    func thumbnail(forKey key: String, diskName: String, maxSize: CGFloat = 200) -> NSImage? {
+        let thumbKey = "\(key)_thumb_\(Int(maxSize))"
+        if let cached = cache.object(forKey: thumbKey as NSString) {
+            return cached
+        }
+        let dir = Self.diskArtworkDirectory
+        // 1) 已生成过的缩略图：直接读小图，解码成本极低
+        let thumbURL = dir.appendingPathComponent("thumb_\(Int(maxSize))_\(diskName)")
+        if let data = try? Data(contentsOf: thumbURL), let img = NSImage(data: data) {
+            let cost = Int(img.size.width * img.size.height * 4)
+            cache.setObject(img, forKey: thumbKey as NSString, cost: cost)
+            return img
+        }
+        // 2) 首次访问：从原始封面解码 + 降采样，并把缩略图落盘供下次使用
+        let srcURL = dir.appendingPathComponent(diskName)
+        guard let data = try? Data(contentsOf: srcURL), let img = NSImage(data: data) else { return nil }
+        let resized = downsampleImage(img, maxDimension: maxSize)
+        if let tiff = resized.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let jpeg = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]) {
+            try? jpeg.write(to: thumbURL, options: .atomic)
+        }
+        let cost = Int(resized.size.width * resized.size.height * 4)
+        cache.setObject(resized, forKey: thumbKey as NSString, cost: cost)
+        return resized
+    }
     
     /// 获取缩略图（用于列表/小卡片，省内存）
     /// - Parameters:
@@ -116,7 +167,7 @@ final class ArtworkCache {
 
 // MARK: - 数据模型
 
-struct AudioTrack: Identifiable {
+struct AudioTrack: Identifiable, Codable {
     let id: UUID
     let url: URL
     let title: String
@@ -132,6 +183,7 @@ struct AudioTrack: Identifiable {
     let lyrics: [LyricsLine]?
     let dynamicCoverURL: URL?
     let trackNumber: Int?
+    let artworkDiskName: String?   // 曲库缓存专用：内嵌封面落盘后的文件名（JSON 不存原始封面）
 
     /// 按需获取封面图（走缓存，不提前解码）
     var artwork: NSImage? {
@@ -140,6 +192,9 @@ struct AudioTrack: Identifiable {
         }
         if let data = artworkData {
             return ArtworkCache.shared.image(forKey: url.path, data: data)
+        }
+        if let disk = artworkDiskName {
+            return ArtworkCache.shared.image(forKey: url.path, diskName: disk)
         }
         return nil
     }
@@ -152,6 +207,9 @@ struct AudioTrack: Identifiable {
         if let data = artworkData {
             return ArtworkCache.shared.thumbnail(forKey: url.path, data: data)
         }
+        if let disk = artworkDiskName {
+            return ArtworkCache.shared.thumbnail(forKey: url.path, diskName: disk)
+        }
         return nil
     }
 
@@ -159,7 +217,8 @@ struct AudioTrack: Identifiable {
          duration: Double, artworkData: Data? = nil, artworkPath: String? = nil,
          bitrate: Int, sampleRate: Double = 0,
          bitDepth: Int = 0, startOffset: Double = 0, lyrics: [LyricsLine]? = nil,
-         dynamicCoverURL: URL? = nil, trackNumber: Int? = nil) {
+         dynamicCoverURL: URL? = nil, trackNumber: Int? = nil,
+         artworkDiskName: String? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -175,6 +234,7 @@ struct AudioTrack: Identifiable {
         self.lyrics = lyrics
         self.dynamicCoverURL = dynamicCoverURL
         self.trackNumber = trackNumber
+        self.artworkDiskName = artworkDiskName
     }
 
     /// 采样率显示文本，如 "44.1 kHz"、"96 kHz"
@@ -212,8 +272,8 @@ struct AlbumGroup: Identifiable {
         if let data = artworkData {
             return ArtworkCache.shared.image(forKey: "album_\(id.uuidString)", data: data)
         }
-        // 兜底：从第一首有封面的曲目取
-        if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil }) {
+        // 兜底：从第一首有封面的曲目取（含缓存落盘封面）
+        if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil || $0.artworkDiskName != nil }) {
             return track.artwork
         }
         return nil
@@ -227,7 +287,7 @@ struct AlbumGroup: Identifiable {
         if let data = artworkData {
             return ArtworkCache.shared.thumbnail(forKey: "album_\(id.uuidString)", data: data)
         }
-        if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil }) {
+        if let track = tracks.first(where: { $0.artworkData != nil || $0.artworkPath != nil || $0.artworkDiskName != nil }) {
             return track.artworkThumbnail
         }
         return nil
@@ -253,6 +313,27 @@ struct Playlist: Identifiable, Codable {
     var id: UUID = UUID()
     var name: String
     var trackKeys: [String]
+}
+
+// MARK: - 曲库磁盘缓存（启动秒开 + 后台增量刷新）
+
+/// 文件签名（mtime + 大小），增量扫描时判断文件是否变化
+struct FileSig: Codable, Equatable {
+    var mtime: TimeInterval
+    var size: Int
+}
+
+/// 曲库缓存：元数据索引 + 文件签名。首次完整扫描后落盘，
+/// 下次启动先加载缓存立即显示曲库，再在后台只读有变化的文件。
+struct LibraryCache: Codable {
+    var version: Int
+    var roots: [String]
+    var tracks: [AudioTrack]
+    var signatures: [String: FileSig]      // 音频文件 path -> 签名
+    var failed: [String: FileSig]          // 上次读元数据失败的文件 path -> 签名（避免反复重试）
+    var cueSignatures: [String: FileSig]   // cue 文件 path -> 签名
+    var cueTrackKeys: [String: [String]]   // cue path -> 该 cue 展开的曲目 key 列表
+    var scannedAt: Date?
 }
 
 // MARK: - 音频库（扫描 + 播放）
@@ -444,13 +525,13 @@ final class AudioLibrary: ObservableObject {
     private var scheduleToken = UUID()
 
     // 当前 macOS 原生可解码的格式
-    private static let supportedExtensions: Set<String> = [
+    private static nonisolated let supportedExtensions: Set<String> = [
         "flac", "m4a", "alac", "wav", "wave", "aiff", "aif", "aifc", "caf",
         "mp3", "aac", "m4b", "m4r", "mp2"
     ]
 
     // 完整音频格式清单（含暂不支持的，用于"遗漏检查"）
-    private static let allAudioExtensions: Set<String> = [
+    private static nonisolated let allAudioExtensions: Set<String> = [
         "flac", "m4a", "alac", "wav", "wave", "aiff", "aif", "aifc", "caf",
         "mp3", "aac", "m4b", "m4r", "mp2",
         "ape", "wv", "dsf", "dff", "tta", "tak", "shn",
@@ -472,17 +553,53 @@ final class AudioLibrary: ObservableObject {
         }
     }
 
-    func scan(roots: [URL]) async {
+    /// 启动时自动恢复曲库：先加载磁盘缓存秒开，再后台增量刷新上次的目录
+    func autoRestore() async {
+        if let cache = Self.loadCache(), !cache.tracks.isEmpty {
+            rebuild(from: cache.tracks)
+            statusMessage = "曲库已加载：\(cache.tracks.count) 首"
+        }
+        guard let saved = UserDefaults.standard.stringArray(forKey: "libraryRoots"),
+              !saved.isEmpty else { return }
+        let roots = saved.compactMap { path -> URL? in
+            var isDir: ObjCBool = false
+            let fm = FileManager.default
+            return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+                ? URL(fileURLWithPath: path) : nil
+        }
+        guard !roots.isEmpty else { return }
+        await scan(roots: roots)
+    }
+
+    /// 增量扫描：只重读新增/变化/上次失败的文件，其余复用磁盘缓存；首次扫描则全量
+    func scan(roots: [URL], incremental: Bool = true) async {
         isScanning = true
         warnings = []
         statusMessage = "正在扫描…"
         defer { isScanning = false }
 
+        // 0. 记住根目录，下次启动自动恢复曲库
+        let stdRoots = roots.map { $0.standardizedFileURL }
+        UserDefaults.standard.set(stdRoots.map { $0.path }, forKey: "libraryRoots")
+
+        // 读取磁盘缓存（仅当根目录一致时可用作增量底子）
+        let cached = incremental ? Self.loadCache() : nil
+        let cache = (cached.map { Set($0.roots) == Set(stdRoots.map(\.path)) } ?? false) ? cached : nil
+
+        var cacheTracksByPath: [String: [AudioTrack]] = [:]
+        var existingByKey: [String: AudioTrack] = [:]
+        if let c = cache {
+            for t in c.tracks {
+                cacheTracksByPath[t.url.standardizedFileURL.path, default: []].append(t)
+                existingByKey[Self.trackKey(t)] = t
+            }
+        }
+
         // 1. 收集音频文件 + CUE 文件（后台线程，避免阻塞主线程出菊花）
         let (audioFiles, cueFiles) = await Task.detached(priority: .userInitiated) { () -> ([URL], [URL]) in
             var audio: [URL] = []
             var cue: [URL] = []
-            for root in roots {
+            for root in stdRoots {
                 audio.append(contentsOf: Self.collectFiles(in: root, extensions: Self.allAudioExtensions))
                 cue.append(contentsOf: Self.collectFiles(in: root, extensions: ["cue"]))
             }
@@ -490,17 +607,96 @@ final class AudioLibrary: ObservableObject {
             return (audio, cue)
         }.value
 
-        // 2. 解析 CUE，把整轨文件展开成分轨曲目
-        var cueTracks: [AudioTrack] = []
-        var cueHandledAudio: Set<URL> = []
+        // 2. 签名对比：找出需要重读元数据的音频（新增 / 变化 / 上次失败的）
+        var currentSigs: [String: FileSig] = [:]
+        var needLoad: [URL] = []
+        var needLoadSet = Set<String>()
+        for url in audioFiles {
+            let path = url.path
+            guard let sig = Self.fileSig(for: url) else { continue }
+            currentSigs[path] = sig
+            if let c = cache {
+                let hasTracks = !(cacheTracksByPath[path] ?? []).isEmpty
+                if c.signatures[path] != sig || (!hasTracks && c.failed[path] != sig) {
+                    needLoad.append(url)
+                    needLoadSet.insert(path)
+                }
+            } else {
+                needLoad.append(url)
+                needLoadSet.insert(path)
+            }
+        }
+
+        // 3. CUE 文件：未变化的复用缓存展开结果，新增/变化的重解析
+        var cueSigs: [String: FileSig] = [:]
+        var cueTrackKeys: [String: [String]] = [:]
+        var cueReload: [(cueURL: URL, audioURL: URL)] = []
+        var cueHandledAudio = Set<String>()
         for cueURL in cueFiles {
+            let cuePath = cueURL.path
+            guard let cueSig = Self.fileSig(for: cueURL) else { continue }
+            cueSigs[cuePath] = cueSig
             guard let sheet = CueParser.parse(fileURL: cueURL) else { continue }
             let dir = cueURL.deletingLastPathComponent()
-            let audioURL = dir.appendingPathComponent(sheet.audioFileName)
-            guard FileManager.default.fileExists(atPath: audioURL.path),
-                  let full = await Self.loadTrack(url: audioURL) else { continue }
+            let audioURL = dir.appendingPathComponent(sheet.audioFileName).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: audioURL.path) else { continue }
+            cueHandledAudio.insert(audioURL.path)
 
-            cueHandledAudio.insert(audioURL.standardizedFileURL)
+            var reuseKeys: [String]?
+            if let c = cache {
+                let audioChanged = needLoadSet.contains(audioURL.path) || c.signatures[audioURL.path] == nil
+                if c.cueSignatures[cuePath] == cueSig && !audioChanged {
+                    reuseKeys = c.cueTrackKeys[cuePath]
+                }
+            }
+            if let keys = reuseKeys, !keys.isEmpty {
+                cueTrackKeys[cuePath] = keys
+            } else {
+                cueReload.append((cueURL, audioURL))
+                if !needLoadSet.contains(audioURL.path) {
+                    needLoad.append(audioURL)
+                    needLoadSet.insert(audioURL.path)
+                }
+            }
+        }
+
+        // 4. 并发加载需要更新的音频元数据（保序返回）
+        let loadedResults = await Self.loadTracksConcurrently(needLoad)
+        var loadedByPath: [String: [AudioTrack]] = [:]
+        var loadedPaths = Set<String>()
+        for (url, track) in zip(needLoad, loadedResults) {
+            let path = url.standardizedFileURL.path
+            if let t = track {
+                loadedByPath[path, default: []].append(t)
+                loadedPaths.insert(path)
+            }
+        }
+
+        // 5. 组装最终曲目：未变化的复用缓存，变化的用新加载，消失的自动移除
+        var allTracks: [AudioTrack] = []
+        for url in audioFiles {
+            let path = url.path
+            if cueHandledAudio.contains(path) { continue }  // 该整轨由 CUE 展开
+            if needLoadSet.contains(path) {
+                if let ts = loadedByPath[path] { allTracks.append(contentsOf: ts) }
+                // 读元数据失败：不再保留旧条目（文件已变化/新增但读不出）
+            } else if let ts = cacheTracksByPath[path] {
+                allTracks.append(contentsOf: ts)
+            }
+        }
+        // CUE 展开
+        for cueURL in cueFiles {
+            let cuePath = cueURL.path
+            if let keys = cueTrackKeys[cuePath] {
+                for key in keys {
+                    if let t = existingByKey[key] { allTracks.append(t) }
+                }
+                continue
+            }
+            guard let sheet = CueParser.parse(fileURL: cueURL) else { continue }
+            let dir = cueURL.deletingLastPathComponent()
+            let audioURL = dir.appendingPathComponent(sheet.audioFileName).standardizedFileURL
+            guard let full = loadedByPath[audioURL.path]?.first else { continue }
             let totalDuration = full.duration
             let artworkData = full.artworkData
             let artworkPath = Self.findFolderArtworkPath(in: dir)
@@ -508,7 +704,7 @@ final class AudioLibrary: ObservableObject {
             let bitrate = full.bitrate
             let albumName = sheet.albumTitle.isEmpty ? dir.lastPathComponent : sheet.albumTitle
             let albumArtist = sheet.albumArtist
-
+            var keys: [String] = []
             for (i, t) in sheet.tracks.enumerated() {
                 let start = max(0, t.startTime)
                 let end = i + 1 < sheet.tracks.count
@@ -524,27 +720,32 @@ final class AudioLibrary: ObservableObject {
                 let trackLyrics = (full.lyrics ?? []).filter {
                     $0.time >= start - 0.01 && $0.time < end
                 }
-                cueTracks.append(AudioTrack(url: audioURL, title: title, artist: artist,
-                                            album: albumName, duration: dur,
-                                            artworkData: artworkData, artworkPath: artworkPath,
-                                            bitrate: bitrate,
-                                            sampleRate: full.sampleRate, bitDepth: full.bitDepth,
-                                            startOffset: start, lyrics: trackLyrics,
-                                            dynamicCoverURL: dynamicCover,
-                                            trackNumber: i + 1))
+                let track = AudioTrack(url: audioURL, title: title, artist: artist,
+                                       album: albumName, duration: dur,
+                                       artworkData: artworkData, artworkPath: artworkPath,
+                                       bitrate: bitrate,
+                                       sampleRate: full.sampleRate, bitDepth: full.bitDepth,
+                                       startOffset: start, lyrics: trackLyrics,
+                                       dynamicCoverURL: dynamicCover,
+                                       trackNumber: i + 1)
+                keys.append(Self.trackKey(track))
+                allTracks.append(track)
             }
+            cueTrackKeys[cuePath] = keys
         }
 
-        // 3. 分轨文件（非 CUE 整轨）并发读元数据
-        let standaloneFiles = audioFiles.filter { !cueHandledAudio.contains($0) }
-        let standaloneResults = await Self.loadTracksConcurrently(standaloneFiles)
-        var allTracks = standaloneResults.compactMap { $0 } + cueTracks
-
-        // 4. 文件夹封面兜底（内嵌封面缺失时，读文件夹里的图）+ 动态封面（cover.mp4）
+        // 6. 文件夹封面兜底 + 动态封面（每次扫描都重探测，目录封面变化也能刷新）
+        let dirs = Set(allTracks.map { $0.url.deletingLastPathComponent() })
+        var dirProbe: [String: (art: String?, dyn: URL?)] = [:]
+        for dir in dirs {
+            dirProbe[dir.path] = (Self.findFolderArtworkPath(in: dir), Self.findFolderDynamicCover(in: dir))
+        }
         allTracks = allTracks.map { track in
             let dir = track.url.deletingLastPathComponent()
-            let dyn = track.dynamicCoverURL ?? Self.findFolderDynamicCover(in: dir)
-            let hasArtwork = track.artworkData != nil || track.artworkPath != nil
+            let probe = dirProbe[dir.path]
+            let dyn = track.dynamicCoverURL ?? probe?.dyn
+            // 有封面来源（内嵌数据 / 文件夹路径 / 缓存落盘封面）就不再被文件夹封面覆盖
+            let hasArtwork = track.artworkData != nil || track.artworkPath != nil || track.artworkDiskName != nil
             if hasArtwork && dyn != nil {
                 return AudioTrack(id: track.id, url: track.url, title: track.title,
                                   artist: track.artist, album: track.album,
@@ -555,7 +756,7 @@ final class AudioLibrary: ObservableObject {
                                   lyrics: track.lyrics, dynamicCoverURL: dyn,
                                   trackNumber: track.trackNumber)
             }
-            guard !hasArtwork, let artPath = Self.findFolderArtworkPath(in: dir) else { return track }
+            guard !hasArtwork, let artPath = probe?.art else { return track }
             return AudioTrack(id: track.id, url: track.url, title: track.title,
                               artist: track.artist, album: track.album,
                               duration: track.duration, artworkPath: artPath,
@@ -565,7 +766,41 @@ final class AudioLibrary: ObservableObject {
                               trackNumber: track.trackNumber)
         }
 
-        // 5. 分组 + 排序
+        // 7. 分组 + 排序 + 播放队列
+        let sortedAlbums = rebuild(from: allTracks)
+
+        // 8. 落盘缓存（后台线程：写内嵌封面文件 + 元数据索引）
+        var failedSigs: [String: FileSig] = [:]
+        for url in needLoad {
+            let path = url.path
+            if !loadedPaths.contains(path), let sig = currentSigs[path] {
+                failedSigs[path] = sig
+            }
+        }
+        let cacheTracks = tracksForCache(allTracks)
+        let newCache = LibraryCache(version: 1,
+                                    roots: stdRoots.map { $0.path },
+                                    tracks: cacheTracks,
+                                    signatures: currentSigs,
+                                    failed: failedSigs,
+                                    cueSignatures: cueSigs,
+                                    cueTrackKeys: cueTrackKeys,
+                                    scannedAt: Date())
+        Task.detached(priority: .utility) {
+            Self.persistArtworkFiles(allTracks)
+            Self.saveCache(newCache)
+        }
+
+        // 9. 汇总 + 遗漏检查
+        statusMessage = "扫描完成：\(allTracks.count) 首 · \(sortedAlbums.count) 张专辑"
+        if warnings.isEmpty {
+            warnings.append("✅ 未发现遗漏，全部音乐已入库（含 CUE 分轨）")
+        }
+    }
+
+    /// 按分组 + 排序重建曲库视图，并设置播放队列
+    @discardableResult
+    private func rebuild(from allTracks: [AudioTrack]) -> [AlbumGroup] {
         let grouped = Dictionary(grouping: allTracks) { $0.album.isEmpty ? "未知专辑" : $0.album }
         let sortedAlbums = grouped.map { (name, groupTracks) -> AlbumGroup in
             let sortedTracks = groupTracks.sorted { Self.trackBefore($0, $1) }
@@ -587,11 +822,75 @@ final class AudioLibrary: ObservableObject {
         }
         playQueue = tracks
         selectedAlbum = nil
+        return sortedAlbums
+    }
 
-        // 6. 汇总 + 遗漏检查
-        statusMessage = "扫描完成：\(allTracks.count) 首 · \(sortedAlbums.count) 张专辑"
-        if warnings.isEmpty {
-            warnings.append("✅ 未发现遗漏，全部音乐已入库（含 CUE 分轨）")
+    // MARK: - 曲库缓存读写
+
+    /// 曲目稳定 key（url + CUE 偏移），与收藏/播放列表的 favoriteKey 同构
+    private static nonisolated func trackKey(_ track: AudioTrack) -> String {
+        "\(track.url.standardizedFileURL.path)|\(track.startOffset)"
+    }
+
+    private static nonisolated func fileSig(for url: URL) -> FileSig? {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let date = values.contentModificationDate else { return nil }
+        return FileSig(mtime: date.timeIntervalSince1970, size: values.fileSize ?? 0)
+    }
+
+    private static nonisolated func cacheURL() -> URL {
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let dir = base.appendingPathComponent("ShengChao", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("libraryCache.json")
+    }
+
+    private static nonisolated func loadCache() -> LibraryCache? {
+        guard let data = try? Data(contentsOf: Self.cacheURL()) else { return nil }
+        guard let cache = try? JSONDecoder().decode(LibraryCache.self, from: data) else { return nil }
+        return cache.version == 1 ? cache : nil
+    }
+
+    private static nonisolated func saveCache(_ cache: LibraryCache) {
+        guard let data = try? JSONEncoder().encode(cache) else { return }
+        try? data.write(to: Self.cacheURL(), options: .atomic)
+    }
+
+    /// 内嵌封面文件名：基于曲目稳定 key 的哈希，文件名稳定不变
+    private static nonisolated func artworkDiskName(for track: AudioTrack) -> String {
+        let key = "\(track.url.standardizedFileURL.path)|\(track.startOffset)"
+        let digest = SHA256.hash(data: Data(key.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
+    }
+
+    /// 把内嵌封面写盘（相同大小的文件已存在则跳过，避免每次启动重复写盘）
+    private static nonisolated func persistArtworkFiles(_ tracks: [AudioTrack]) {
+        let fm = FileManager.default
+        for track in tracks {
+            guard let data = track.artworkData, !data.isEmpty else { continue }
+            let url = ArtworkCache.diskArtworkDirectory
+                .appendingPathComponent(Self.artworkDiskName(for: track))
+            if let attrs = try? fm.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int, size == data.count { continue }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// 生成落盘用曲目列表：内嵌封面从 JSON 中移除、改为引用落盘文件名（减小缓存体积）
+    private func tracksForCache(_ tracks: [AudioTrack]) -> [AudioTrack] {
+        tracks.map { track in
+            guard let data = track.artworkData, !data.isEmpty else { return track }
+            let disk = Self.artworkDiskName(for: track)
+            return AudioTrack(id: track.id, url: track.url, title: track.title,
+                              artist: track.artist, album: track.album,
+                              duration: track.duration,
+                              artworkData: nil, artworkPath: track.artworkPath,
+                              bitrate: track.bitrate, sampleRate: track.sampleRate,
+                              bitDepth: track.bitDepth, startOffset: track.startOffset,
+                              lyrics: track.lyrics, dynamicCoverURL: track.dynamicCoverURL,
+                              trackNumber: track.trackNumber, artworkDiskName: disk)
         }
     }
 
@@ -726,22 +1025,26 @@ final class AudioLibrary: ObservableObject {
 
     private static nonisolated func loadTracksConcurrently(_ files: [URL]) async -> [AudioTrack?] {
         guard !files.isEmpty else { return [] }
-        var results: [AudioTrack?] = []
-        await withTaskGroup(of: AudioTrack?.self) { group in
+        var results: [Int: AudioTrack?] = [:]
+        await withTaskGroup(of: (Int, AudioTrack?).self) { group in
             let concurrency = min(16, files.count)
             var iterator = files.makeIterator()
+            var index = 0
             func addNext() {
                 if let url = iterator.next() {
-                    group.addTask { await loadTrack(url: url) }
+                    let idx = index
+                    index += 1
+                    group.addTask { (idx, await loadTrack(url: url)) }
                 }
             }
             for _ in 0..<concurrency { addNext() }
-            for await track in group {
-                results.append(track)
+            for await (idx, track) in group {
+                results[idx] = track
                 addNext()
             }
         }
-        return results
+        // 保序返回：调用方依赖顺序把 URL 与元数据一一对应（增量扫描）
+        return (0..<files.count).map { results[$0] ?? nil }
     }
 
     // MARK: - 从文件名/文件夹名推断元数据（无内嵌 tag 时兜底）
