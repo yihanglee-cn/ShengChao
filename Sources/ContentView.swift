@@ -514,7 +514,7 @@ struct ContentView: View {
                     // 全屏封面模式下歌词从歌名下方（y=130）开始，避免重叠
                     let topInset: CGFloat = fullScreenCoverMode ? 130 : 0
                     let lyricHeight = wf.height - topInset
-                    lyricsPanel(height: lyricHeight)
+                    lyricsPanel(height: lyricHeight, width: lyricsWidth)
                         .frame(width: lyricsWidth, height: lyricHeight)
                         .position(x: lyricsLeft + lyricsWidth / 2, y: topInset + lyricHeight / 2)
                         .transition(.opacity)
@@ -703,12 +703,16 @@ struct ContentView: View {
     }
 
     // 歌词面板（右侧，纵向充满窗口；越靠近上/下边缘的歌词越模糊）
-    private func lyricsPanel(height: CGFloat) -> some View {
+    private func lyricsPanel(height: CGFloat, width: CGFloat) -> some View {
         let lines = library.currentTrack?.lyrics ?? []
         let halfHeight = height / 2
+        let scale = fullScreenCoverMode ? min(1.32, max(1.0, width / 720)) : 1.0
+        let currentFontSize = 56 * scale
+        let secondaryFontSize = 28 * scale
+        let lineSpacing = 44 * scale
         return ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 44) {
+                VStack(alignment: .leading, spacing: lineSpacing) {
                     if lines.isEmpty {
                         Text("暂无歌词")
                             .font(.headline)
@@ -718,7 +722,7 @@ struct ContentView: View {
                         ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
                             let isCurrent = index == currentLyricIndex
                             Text(line.text)
-                                .font(.system(size: isCurrent ? 56 : 28,
+                                .font(.system(size: isCurrent ? currentFontSize : secondaryFontSize,
                                               weight: isCurrent ? .semibold : .regular))
                                 .foregroundColor(.white.opacity(isCurrent ? 1.0 : 0.4))
                                 .frame(maxWidth: .infinity, alignment: .leading)

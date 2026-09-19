@@ -101,16 +101,11 @@ PLIST
 echo "==> ad-hoc 签名（未签名 app 图标可能不显示）"
 codesign --force --deep --sign "ShengChao Local Dev" "${BUNDLE}" 2>&1 || echo "(签名跳过)"
 
-echo "==> 同步到桌面 & Applications"
-DEST_DESKTOP="$HOME/Desktop/${APP_NAME}.app"
+echo "==> 同步到 Applications"
 DEST_APPS="/Applications/${APP_NAME}.app"
 
 # 先停掉正在运行的旧实例，避免占用
 pkill -f "${EXEC_NAME}" 2>/dev/null || true
-
-rm -rf "${DEST_DESKTOP}"
-ditto "${BUNDLE}" "${DEST_DESKTOP}"
-codesign --force --deep --sign "ShengChao Local Dev" "${DEST_DESKTOP}" 2>&1 || echo "(桌面签名跳过)"
 
 if [ -w /Applications ]; then
   rm -rf "${DEST_APPS}"
@@ -123,4 +118,4 @@ fi
 echo "==> 完成"
 echo "App: ${BUNDLE}"
 du -sh "${BUNDLE}"
-echo "已同步到: ${DEST_DESKTOP}"
+echo "已同步到: ${DEST_APPS}"
