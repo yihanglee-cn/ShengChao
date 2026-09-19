@@ -156,6 +156,7 @@ struct ContentView: View {
     @State private var showFullCover = false
     @State private var showLyrics = false
     @State private var coverVisible = false  // 大封面层可见性（关闭时延迟隐藏，保证回程动画可见）
+    @State private var coverControlsVisible = false
     @State private var controlsVisible = true  // 全屏封面模式下控制区是否自动隐藏
     @State private var autoHideTask: Task<Void, Never>?
     
@@ -197,8 +198,8 @@ struct ContentView: View {
                                   coverNamespace: coverNamespace,
                                   showFullCover: $showFullCover,
                                   coverVisible: $coverVisible)
-                        .opacity(coverVisible ? 0 : 1)  // 全屏封面激活时隐藏整个底部控制栏
-                        .animation(nil, value: coverVisible)
+                        .opacity(showFullCover ? 0 : 1)  // 全屏封面激活时隐藏整个底部控制栏
+                        .animation(.easeInOut(duration: coverAnimationDuration * 0.6), value: showFullCover)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 14)
                 }
@@ -238,13 +239,22 @@ struct ContentView: View {
         .environment(\.theme, nightMode ? .night : .day)
         .onChange(of: showFullCover) { showing in
             if !showing {
+                coverControlsVisible = false
                 controlsVisible = true
                 autoHideTask?.cancel()
                 
             }
             if showing {
                 coverVisible = true
+                coverControlsVisible = false
                 showLyrics = true   // 打开播放页时自动显示歌词
+                DispatchQueue.main.asyncAfter(deadline: .now() + coverAnimationDuration * 0.55) {
+                    if showFullCover {
+                        withAnimation(.easeOut(duration: 0.22)) {
+                            coverControlsVisible = true
+                        }
+                    }
+                }
             } else {
                 // 等关闭动画结束再隐藏大封面层，让回程动画可见
                 DispatchQueue.main.asyncAfter(deadline: .now() + coverAnimationDuration + 0.15) {
@@ -436,9 +446,11 @@ struct ContentView: View {
 
                 // 封面下方：歌名 + 进度条 + 播放控制按钮（紧贴封面底边，且不超出窗口）
                 fullPlayerControls
-                    .opacity((coverVisible && (fullScreenCoverMode ? controlsVisible : true)) ? 1 : 0)
+                    .opacity((coverVisible && coverControlsVisible && (fullScreenCoverMode ? controlsVisible : true)) ? 1 : 0)
+                    .offset(y: coverControlsVisible ? 0 : 16)
+                    .animation(.easeOut(duration: 0.22), value: coverControlsVisible)
                     .animation(.easeInOut(duration: 0.3), value: controlsVisible)
-                    .allowsHitTesting(coverVisible && (!fullScreenCoverMode || controlsVisible))
+                    .allowsHitTesting(coverVisible && coverControlsVisible && (!fullScreenCoverMode || controlsVisible))
                     .zIndex(10)
                     .position(x: fullScreenCoverMode ? wf.width / 2 : coverX,
                               y: showFullCover ? wf.height - 55 : wf.height - 65)
