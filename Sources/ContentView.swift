@@ -1365,31 +1365,22 @@ struct Sidebar: View {
     }
 
     private func playlistItem(_ item: (name: String, icon: String)) -> some View {
-        HStack(spacing: 0) {
-            Button {
-                selected = item.name
-                library.activeSidebar = item.name
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: item.icon)
-                        .frame(width: 20)
-                    Text(item.name)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                withAnimation { playlistsExpanded.toggle() }
-            } label: {
+        Button {
+            selected = item.name
+            library.activeSidebar = item.name
+            withAnimation { playlistsExpanded.toggle() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: item.icon)
+                    .frame(width: 20)
+                Text(item.name)
+                Spacer()
                 Image(systemName: playlistsExpanded ? "chevron.down" : "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.secondaryText)
-                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .font(.body)
         .foregroundStyle(selected == item.name ? theme.primaryText : theme.secondaryText)
@@ -1401,6 +1392,7 @@ struct Sidebar: View {
                     .fill(theme.selectionFill)
             }
         }
+        .buttonStyle(.plain)
     }
 
     private var playlistSubItems: some View {
