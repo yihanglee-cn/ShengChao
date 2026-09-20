@@ -137,8 +137,41 @@ final class ScrollPositionStore {
     private init() {}
 }
 
+// MARK: - 音量条几何（拖动由 NSEvent 本地监视器处理，这里只负责上报矩形）
+
+/// 全屏覆盖层里 SwiftUI 自定义拖动手势拿不到事件（会被外层手势/平台视图吞掉），
+/// 音量条拖动因此改用 NSEvent 本地监视器（与 ParallaxStore 同一套做法）：
+/// 这里记录音量条的窗口坐标（AppKit 左下原点），供监视器做命中判定
+final class VolumeBarFrameStore {
+    static let shared = VolumeBarFrameStore()
+    var rect: CGRect = .zero   // 音量条在窗口坐标里的矩形
+    weak var window: NSWindow?
+    var isDragging = false     // 拖动进行中（按下后移出区域也继续跟随）
+    private init() {}
+}
+
+/// 上报自身在窗口中的矩形（后台测量，不参与布局与命中）
+struct VolumeBarProbe: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { ProbeView() }
+    func updateNSView(_ nsView: NSView, context: Context) { (nsView as? ProbeView)?.report() }
+
+    final class ProbeView: NSView {
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); report() }
+        override func layout() { super.layout(); report() }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }   // 不参与命中，交给监视器
+        func report() {
+            guard let win = window else { return }
+            VolumeBarFrameStore.shared.rect = convert(bounds, to: nil)   // nil = 窗口坐标
+            VolumeBarFrameStore.shared.window = win
+        }
+    }
+}
+
 // 大封面 Hero 动画时长（原 4s，提速 9.2 倍）
 private let coverAnimationDuration: Double = 4.0 / 9.2
+
+// 全屏封面模式：竖排音量条的轨道高度（自绘拖动映射依赖它）
+private let coverVolumeTrackHeight: CGFloat = 132
 
 // 歌词面板：收集每行歌词的中心 y（用于按距面板中心的距离计算边缘模糊）
 struct LyricMidKey: PreferenceKey {
@@ -166,6 +199,8 @@ struct ContentView: View {
     @State private var lyricMids: [Int: CGFloat] = [:]  // 每行歌词中心 y（边缘模糊用）
     @State private var volumeIndicatorVisible = false
     @State private var volumeIndicatorTask: Task<Void, Never>?
+    @State private var coverVolumePopoverVisible = false // 全屏封面控制区：竖排音量条是否展开
+    @State private var volumeDragMonitor: Any? = nil     // 音量条拖动的 NSEvent 监视器
     @State private var keyMonitor: Any? = nil
     @Namespace private var coverNamespace
     @AppStorage("nightMode") private var nightMode = true
@@ -241,6 +276,7 @@ struct ContentView: View {
             if !showing {
                 coverControlsVisible = false
                 controlsVisible = true
+                setVolumePanel(visible: false)
                 autoHideTask?.cancel()
                 
             }
@@ -334,6 +370,7 @@ struct ContentView: View {
                 NSEvent.removeMonitor(m)
                 keyMonitor = nil
             }
+            removeVolumeDragMonitor()
         }
     }
 
@@ -351,6 +388,74 @@ struct ContentView: View {
                 volumeIndicatorVisible = false
             }
         }
+    }
+
+    // 全屏封面模式：鼠标静止 2 秒后自动隐藏控制区（连同展开的竖排音量条一起收起）
+    private func scheduleAutoHide() {
+        autoHideTask?.cancel()
+        autoHideTask = Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled {
+                setVolumePanel(visible: false)
+                controlsVisible = false
+            }
+        }
+    }
+
+    // 全屏封面控制区：展开/收起竖排音量条（展开时挂上 NSEvent 拖动监视器）
+    private func setVolumePanel(visible: Bool) {
+        guard coverVolumePopoverVisible != visible else { return }
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+            coverVolumePopoverVisible = visible
+        }
+        if visible {
+            installVolumeDragMonitor()
+            scheduleAutoHide()
+        } else {
+            removeVolumeDragMonitor()
+        }
+    }
+
+    // 音量条拖动：NSEvent 本地监视器（SwiftUI 手势在这个覆盖层里收不到事件）
+    private func installVolumeDragMonitor() {
+        guard volumeDragMonitor == nil else { return }
+        volumeDragMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
+        ) { event in
+            let store = VolumeBarFrameStore.shared
+            guard coverVolumePopoverVisible,
+                  let barWindow = store.window,
+                  event.window === barWindow,
+                  store.rect.height > 1 else { return event }
+
+            let point = event.locationInWindow   // 窗口坐标（左下原点）
+            // 热区比可见轨道宽一圈，好抓；一旦按下就不再重新判定
+            let hot = store.rect.insetBy(dx: -12, dy: -10)
+            switch event.type {
+            case .leftMouseDown:
+                guard hot.contains(point) else { return event }   // 点其它地方 → 交给 SwiftUI
+                store.isDragging = true
+                autoHideTask?.cancel()   // 拖动期间不自动隐藏，松手后重新计时
+            case .leftMouseUp:
+                guard store.isDragging else { return event }
+                store.isDragging = false
+                scheduleAutoHide()
+            default:
+                guard store.isDragging else { return event }
+            }
+
+            let ratio = (point.y - store.rect.minY) / store.rect.height   // y 向上 → 上大下小
+            library.volume = min(1, max(0, Double(ratio)))
+            return nil   // 吞掉事件，避免同时触发外层手势
+        }
+    }
+
+    private func removeVolumeDragMonitor() {
+        if let m = volumeDragMonitor {
+            NSEvent.removeMonitor(m)
+            volumeDragMonitor = nil
+        }
+        VolumeBarFrameStore.shared.isDragging = false
     }
 
     @ViewBuilder
@@ -534,17 +639,10 @@ struct ContentView: View {
             guard fullScreenCoverMode, showFullCover else { return }
             switch phase {
             case .active:
-                // 鼠标移动：显示控制区，重置 2 秒自动隐藏
+                // 鼠标移动：显示控制区，重置 2 秒自动隐藏（音量条展开时同样会计时收起）
                 controlsVisible = true
-                
                 autoHideTask?.cancel()
-                autoHideTask = Task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    if !Task.isCancelled {
-                        controlsVisible = false
-                        
-                    }
-                }
+                scheduleAutoHide()
             case .ended:
                 controlsVisible = true
                 
@@ -601,8 +699,7 @@ struct ContentView: View {
         }
     }
 
-    // 播放页完整控制区：歌名 + 进度条 + 随机/上下首/播放/循环
-    @ViewBuilder
+    // 播放页完整控制区：歌名 + 进度条 + 随机/上下首/播放/循环（全屏模式收藏旁带音量按钮）
     private var fullPlayerControls: some View {
         VStack(spacing: 14) {
             // 歌名/艺术家（全屏封面模式下单独固定显示在歌词上方，这里不重复）
@@ -623,7 +720,7 @@ struct ContentView: View {
             // 进度条（复用）
             coverProgressBar
 
-            // 控制按钮：播放模式 / 上一首 / 播放暂停 / 下一首
+            // 控制按钮：播放模式 / 上一首 / 播放暂停 / 下一首（+ 全屏模式：收藏、音量）
             HStack(spacing: 26) {
                 Button { library.cyclePlaybackMode() } label: {
                     Image(systemName: library.playbackMode == .one ? "repeat.1" :
@@ -668,12 +765,66 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                // 音量按钮（全屏封面模式）：点按在按钮正上方展开竖排音量条
+                if fullScreenCoverMode {
+                    coverVolumeButton
+                }
             }
         }
         .frame(width: 578)
         .shadow(color: fullScreenCoverMode ? .black.opacity(0.60) : .clear, radius: 4, y: 1)
         .contentShape(Rectangle())
-        .onTapGesture { }   // 吞掉点击，不触发关闭播放页
+        .onTapGesture { coverVolumePopoverVisible = false }   // 吞掉点击（不关闭播放页），并收起音量条
+    }
+
+    // 全屏封面模式：控制行内的音量按钮（点按在正上方展开竖排音量条）
+    // 注意：外层不能用 Button 包住音量条——Button 会吞掉 overlay 内子视图的手势
+    private var coverVolumeButton: some View {
+        Image(systemName: library.volume == 0 ? "speaker.slash.fill" : "speaker.fill")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundColor(.white.opacity(coverVolumePopoverVisible ? 1 : 0.8))
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .onTapGesture { setVolumePanel(visible: !coverVolumePopoverVisible) }
+            .help("音量")
+            // 面板贴按钮底部再整体上移（按钮高 44 + 12 间隙），这样无需知道面板高度
+            .overlay(alignment: .bottom) {
+                if coverVolumePopoverVisible {
+                    coverVolumePanel
+                        .offset(y: -56)
+                        .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom)))
+                }
+            }
+            .zIndex(20)
+    }
+
+    // 竖排音量条：纯展示，拖动由 NSEvent 监视器接管（见 installVolumeDragMonitor）
+    private var coverVolumePanel: some View {
+        let track = coverVolumeTrackHeight
+        let fill = max(4, track * CGFloat(library.volume))
+        return VStack(spacing: 10) {
+            Text("\(Int((library.volume * 100).rounded()))%")
+                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundColor(.white.opacity(0.8))
+                .frame(width: 40)
+
+            ZStack(alignment: .bottom) {
+                Capsule().fill(Color.white.opacity(0.22))
+                    .frame(width: 8, height: track)
+                Capsule().fill(Color.white)
+                    .frame(width: 8, height: fill)
+                Circle().fill(.white)
+                    .frame(width: 12, height: 12)
+                    .offset(y: -(fill - 6))
+                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
+            }
+            .frame(width: 40, height: track)
+            .background(VolumeBarProbe())   // 上报命中矩形（窗口坐标）
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     // 音量指示胶囊（大封面界面顶端）
