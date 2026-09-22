@@ -37,6 +37,7 @@ swiftc -parse-as-library \
   Sources/Lyrics.swift \
   Sources/AudioLibrary.swift \
   Sources/Scrollbar.swift \
+  Sources/UIScale.swift \
   Sources/ContentView.swift \
   Sources/FloatingPlayerView.swift \
   Sources/SplashView.swift \

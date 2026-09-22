@@ -75,17 +75,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct LiquidGlassPlayerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
+
+    private var uiScale: UIScaleOption { UIScaleOption(rawValue: uiScaleRaw) ?? .standard }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.uiScale, uiScale)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1150, height: 740)
+        // 首次启动的窗口尺寸随档位放大，避免大档位下内容被挤压
+        .defaultSize(width: 1150 * uiScale.factor, height: 740 * uiScale.factor)
         .windowResizability(.contentMinSize)
 
         Window("悬浮窗", id: "floating") {
             FloatingPlayerView()
+                .environment(\.uiScale, uiScale)
         }
         .windowStyle(.hiddenTitleBar)
         .windowLevel(.floating)
@@ -93,6 +99,7 @@ struct LiquidGlassPlayerApp: App {
 
         Window("设置", id: "settings") {
             SettingsView()
+                .environment(\.uiScale, uiScale)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

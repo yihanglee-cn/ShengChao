@@ -7,6 +7,7 @@ import AppKit
 /// 0.0-0.4s 背景图淡入 → 0.3-0.7s 中央 logo 淡入 →
 /// 1.5-2.0s logo 与背景同时淡出（主界面浮现）→ 2.0s 窗口关闭
 struct SplashView: View {
+    @Environment(\.uiScale) private var ui
     @State private var bgVisible = false
     @State private var logoVisible = false
 
@@ -16,14 +17,14 @@ struct SplashView: View {
                 .opacity(bgVisible ? 1 : 0)
                 .animation(.easeOut(duration: 0.4), value: bgVisible)
 
-            VStack(spacing: 30) {
+            VStack(spacing: ui.s(30)) {
                 // 与原 logo 完全一致的 waveform 波形（全白）
                 Image(systemName: "waveform")
-                    .font(.system(size: 220, weight: .medium))
+                    .font(ui.fs(220, .medium))
                     .foregroundStyle(.white)
                 // SOUND WAVE 字样
                 Text("SOUND WAVE")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .font(ui.fs(22, .semibold, design: .rounded))
                     .kerning(8)
                     .foregroundStyle(.white.opacity(0.9))
             }

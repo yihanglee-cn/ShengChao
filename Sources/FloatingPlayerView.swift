@@ -103,6 +103,7 @@ struct HoverDetector: NSViewRepresentable {
 }
 
 struct FloatingPlayerView: View {
+    @Environment(\.uiScale) private var ui
     @ObservedObject private var library = AudioLibrary.shared
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("floatingOpen") private var floatingOpen = false
@@ -116,7 +117,7 @@ struct FloatingPlayerView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: ui.s(12)) {
             Group {
                 if dynamicCoverEnabled, let dyn = library.currentTrack?.dynamicCoverURL {
                     DynamicCoverView(url: dyn)
@@ -126,26 +127,26 @@ struct FloatingPlayerView: View {
                                  size: 52)
                 }
             }
-            .frame(width: 200, height: 200)
+            .frame(width: ui.s(200), height: ui.s(200))
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             VStack(spacing: 2) {
                 Text(library.currentTrack?.title ?? "未在播放")
-                    .font(.title3)
+                    .font(ui.fs(FB.title3))
                     .foregroundStyle(theme.primaryText)
                     .lineLimit(1)
                 Text(library.currentTrack.map { $0.artist } ?? "选择一首歌开始播放")
-                    .font(.callout)
+                    .font(ui.fs(FB.callout))
                     .foregroundStyle(theme.secondaryText)
                     .lineLimit(1)
             }
 
-            HStack(spacing: 24) {
+            HStack(spacing: ui.s(24)) {
                 Button { library.previous() } label: {
                     Image(systemName: "backward.fill")
-                        .font(.title2.weight(.semibold))
+                        .font(ui.fs(FB.title2, .semibold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: 46, height: 46)
+                        .frame(width: ui.s(46), height: ui.s(46))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -153,9 +154,9 @@ struct FloatingPlayerView: View {
 
                 Button { library.togglePlay() } label: {
                     Image(systemName: library.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title.weight(.bold))
+                        .font(ui.fs(FB.title, .bold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: 60, height: 60)
+                        .frame(width: ui.s(60), height: ui.s(60))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -163,17 +164,17 @@ struct FloatingPlayerView: View {
 
                 Button { library.next() } label: {
                     Image(systemName: "forward.fill")
-                        .font(.title2.weight(.semibold))
+                        .font(ui.fs(FB.title2, .semibold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: 46, height: 46)
+                        .frame(width: ui.s(46), height: ui.s(46))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.tracks.isEmpty)
             }
         }
-        .padding(12)
-        .frame(width: 224)
+        .padding(ui.s(12))
+        .frame(width: ui.s(224))
         .glassEffect(glass, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(alignment: .topLeading) {
             closeButton
@@ -197,19 +198,19 @@ struct FloatingPlayerView: View {
         } label: {
             Circle()
                 .fill(Color(red: 1.0, green: 0.373, blue: 0.341))
-                .frame(width: 12, height: 12)
+                .frame(width: ui.s(12), height: ui.s(12))
                 .overlay(
                     Image(systemName: "xmark")
-                        .font(.system(size: 6.5, weight: .bold))
+                        .font(ui.fs(6.5, .bold))
                         .foregroundStyle(Color(red: 0.42, green: 0.05, blue: 0.05))
                 )
                 .opacity(hoveringClose ? 1 : 0)
         }
         .buttonStyle(.plain)
-        .frame(width: 28, height: 28)
+        .frame(width: ui.s(28), height: ui.s(28))
         .background(HoverDetector { hoveringClose = $0 })
         .animation(.easeInOut(duration: 0.15), value: hoveringClose)
-        .padding(12)
+        .padding(ui.s(12))
         .help("关闭悬浮窗")
     }
 }
