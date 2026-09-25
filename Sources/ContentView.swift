@@ -1598,7 +1598,7 @@ struct Sidebar: View {
             }
             .padding(ui.s(14))
         }
-        .frame(width: ui.s(210))
+        .frame(width: ui.sidebarWidth)
         .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .alert("新建播放列表", isPresented: $showNewPlaylistAlert) {
             TextField("播放列表名称", text: $newPlaylistName)

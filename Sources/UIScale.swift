@@ -66,6 +66,20 @@ enum UIScaleOption: String, CaseIterable, Identifiable {
         snap(base * factor, step: 1)
     }
 
+    /// 主界面左侧（侧边栏）宽度。
+    ///
+    /// 界面整体等比放大时，若侧边栏也按同一倍率变宽，放大档位下左侧区域会显得
+    /// 过宽、占比过大（用户反馈）。这里让侧边栏随档位只按整体倍率的一半步长放大
+    /// 并设上限封顶，使大档位下左侧区域相对收窄、占窗口比例变小，
+    /// 同时保证内部文字（放大后）仍能完整放下。
+    var sidebarWidth: CGFloat {
+        let base: CGFloat = 210
+        // 折减缩放：整体每放大 10%，侧边栏仅放大 5%
+        let gentle = 1 + (factor - 1) * 0.5
+        // 上限封顶，避免电视等更远档位下侧边栏无限变宽
+        return min(snap(base * gentle, step: 1), 260)
+    }
+
     private func snap(_ value: CGFloat, step: CGFloat) -> CGFloat {
         (value / step).rounded() * step
     }
