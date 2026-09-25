@@ -442,6 +442,36 @@ private final class PlayerScheduler {
         }
     }
 
+    /// 在 audioIOQueue 上串行执行引擎拓扑重建（stop/detach/attach/重连/start），
+    /// 与 refill/scheduleBuffer 共享同一串行队列，消除「后台调度 vs 主线程重建」竞态。
+    ///
+    /// 竞态根因：scheduleBuffer 要求节点已 attach 且引擎 running，若主线程正 detach/stop
+    /// 节点时后台恰好在调度，AVAudioPlayerNode 会抛 NSException → 未捕获 → abort()（SIGABRT）。
+    /// 本方法把重建任务纳入同一队列，使重建与任何 scheduleBuffer 天然互斥。
+    ///
+    /// 执行顺序：作废旧会话 → 停止播放节点 → 执行 rebuild → 回主线程回调。
+    /// - Parameter rebuild: 引擎重建闭包，在 audioIOQueue 上执行；只应操作捕获的引擎/节点
+    ///   对象，不要在后台访问 @MainActor 隔离状态。throw 表示重建失败。
+    /// - Parameter onComplete: 重建成功回调，已回主线程执行。
+    /// - Parameter onFailure: 重建失败回调（携带错误），已回主线程执行。
+    func rebuildEngine(rebuild: @escaping () throws -> Void,
+                       onComplete: @escaping () -> Void,
+                       onFailure: @escaping (Error) -> Void) {
+        audioIOQueue.async { [weak self] in
+            guard let self else { return }
+            // 先作废旧会话并停止播放节点，丢弃已调度 buffer，避免旧 buffer 在重建期间被回调
+            self.activeSession = nil
+            self.playerNode.stop()
+            do {
+                try rebuild()
+            } catch {
+                DispatchQueue.main.async { onFailure(error) }
+                return
+            }
+            DispatchQueue.main.async { onComplete() }
+        }
+    }
+
     /// 补填：余量（已调度 - 已播完）低于目标且源未读完时继续调度 buffer。
     private func refill(_ session: PlaybackSession) {
         guard activeSession === session else { return }
@@ -658,6 +688,8 @@ final class AudioLibrary: ObservableObject {
 
     /// 音频输出设备切换（扬声器 ↔ 音箱）后：playerNode 连接格式仍锁定旧设备采样率，
     /// 需重建连接（按新设备格式显式 connect），再从当前进度重新调度恢复播放。
+    /// 引擎拓扑重建与恢复调度统一交给 PlayerScheduler 在 audioIOQueue 串行执行，
+    /// 与 scheduleBuffer 互斥，消除「主线程 detach/attach vs 后台调度」竞态。
     @MainActor
     private func handleEngineConfigChange() {
         guard engineReady else { return }
@@ -677,32 +709,38 @@ final class AudioLibrary: ObservableObject {
         let resumeTime = currentTime
         let savedVolume = playerNode.volume
 
-        // 停引擎 → 重建播放节点连接（输出格式按新设备重新协商）
-        if engine.isRunning { engine.stop() }
-        playerNode.stop()
-        engine.detach(playerNode)
-        engine.attach(playerNode)
-        // 第一阶段：无输入源的图先启动，拿新设备输出格式
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            warnings = ["音频设备切换失败：\(error.localizedDescription)"]
-            return
+        // 引擎拓扑重建：停引擎 → 重建播放节点连接（输出格式按新设备重新协商）。
+        // 该闭包在 audioIOQueue 上执行（与调度串行互斥），只操作捕获的引擎/节点对象，
+        // 不在后台访问 @MainActor 隔离状态。
+        let eng = engine
+        let node = playerNode
+        let mixer = eng.mainMixerNode
+        let rebuild: () throws -> Void = {
+            if eng.isRunning { eng.stop() }
+            node.stop()
+            eng.detach(node)
+            eng.attach(node)
+            // 第一阶段：无输入源的图先启动，拿新设备输出格式
+            eng.prepare()
+            try eng.start()
+            let outFormat = eng.outputNode.outputFormat(forBus: 0)
+            // 停止后按新设备格式显式连接（format: nil 会沿用旧格式 → 播放失配）
+            eng.stop()
+            eng.connect(node, to: mixer, format: outFormat)
+            eng.prepare()
+            try eng.start()
         }
-        let outFormat = engine.outputNode.outputFormat(forBus: 0)
-        // 停止后按新设备格式显式连接（format: nil 会沿用旧格式 → 播放失配）
-        engine.stop()
-        engine.connect(playerNode, to: engine.mainMixerNode, format: outFormat)
-        engine.prepare()
-        do {
-            try engine.start()
-        } catch {
-            warnings = ["音频设备切换失败：\(error.localizedDescription)"]
+
+        guard let track else {
+            // 未在播放：仅重建拓扑，保持引擎对新设备可用
+            scheduler.rebuildEngine(rebuild: rebuild,
+                                    onComplete: {},
+                                    onFailure: { [weak self] err in
+                                        self?.warnings = ["音频设备切换失败：\(err.localizedDescription)"]
+                                    })
             return
         }
 
-        guard let track else { return }
         // 从当前进度重新调度（scheduleSegment 用重建后的 playerNode 输出格式）
         do {
             let file = try AVAudioFile(forReading: track.url)
@@ -713,19 +751,28 @@ final class AudioLibrary: ObservableObject {
             let remaining = AVAudioFramePosition((track.duration - clamped) * sampleRate)
             let frameCount = AVAudioFramePosition(max(0, min(remaining, file.length - startFrame)))
 
-            // 重建拓扑后由 PlayerScheduler 在后台串行重建会话并恢复播放
-            scheduleSegment(file: file, startFrame: startFrame,
-                            frameCount: frameCount, shouldPlay: wasPlaying) { [weak self] in
-                DispatchQueue.main.async {
-                    self?.advanceOrStop()
-                }
-            }
-            playerNode.volume = savedVolume
-            scheduleStartTime = clamped
-            currentTime = clamped
-            if wasPlaying {
-                isPlaying = true
-            }
+            // 重建拓扑 + 恢复调度统一在 audioIOQueue 串行执行（与 refill 互斥），
+            // 重建完成后回主线程重新调度并恢复播放
+            scheduler.rebuildEngine(rebuild: rebuild,
+                                    onComplete: { [weak self] in
+                                        guard let self else { return }
+                                        self.scheduleSegment(file: file, startFrame: startFrame,
+                                                             frameCount: frameCount,
+                                                             shouldPlay: wasPlaying) { [weak self] in
+                                            DispatchQueue.main.async {
+                                                self?.advanceOrStop()
+                                            }
+                                        }
+                                        self.playerNode.volume = savedVolume
+                                        self.scheduleStartTime = clamped
+                                        self.currentTime = clamped
+                                        if wasPlaying {
+                                            self.isPlaying = true
+                                        }
+                                    },
+                                    onFailure: { [weak self] err in
+                                        self?.warnings = ["音频设备切换失败：\(err.localizedDescription)"]
+                                    })
         } catch {
             warnings = ["设备切换后无法继续播放：\(track.title)"]
         }
