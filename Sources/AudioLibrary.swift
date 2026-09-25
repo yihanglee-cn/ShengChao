@@ -336,6 +336,203 @@ struct LibraryCache: Codable {
     var scannedAt: Date?
 }
 
+// MARK: - 播放调度器（音频流式调度，脱离主线程）
+
+/// 播放会话：承载一次"从 startFrame 播 frameCount 帧"的完整调度状态。
+/// 仅在 PlayerScheduler 的 audioIOQueue 上访问。scheduled/consumed 均以
+/// "输出格式秒数"计量，用于计算队列余量（余量 = 已调度时长 - 已播完时长）。
+private final class PlaybackSession {
+    let file: AVAudioFile
+    let srcFormat: AVAudioFormat
+    let dstFormat: AVAudioFormat
+    let converter: AVAudioConverter?
+    let totalFrames: AVAudioFramePosition  // 源文件帧数
+    let totalSeconds: Double               // 本次总时长（秒）
+    let onFinish: () -> Void               // 整段播完/出错回调
+    /// 已从源文件读出的帧数（含待转换/正在转换的）
+    var fileFramesRead: AVAudioFramePosition = 0
+    /// 已调度到播放节点的输出时长（秒）
+    var scheduledSeconds: Double = 0
+    /// 已播完回调累加的输出时长（秒）
+    var consumedSeconds: Double = 0
+    /// 是否已把源文件全部读取并调度完毕
+    var allScheduled = false
+
+    init(file: AVAudioFile,
+         startFrame: AVAudioFramePosition,
+         frameCount: AVAudioFramePosition,
+         dstFormat: AVAudioFormat,
+         onFinish: @escaping () -> Void) {
+        self.file = file
+        self.srcFormat = file.processingFormat
+        self.dstFormat = dstFormat
+        let totalFrames = min(frameCount, file.length - startFrame)
+        self.totalFrames = totalFrames
+        self.totalSeconds = Double(max(0, totalFrames)) / self.srcFormat.sampleRate
+        self.onFinish = onFinish
+        file.framePosition = startFrame
+        self.converter = (self.srcFormat != dstFormat) ? AVAudioConverter(from: srcFormat, to: dstFormat) : nil
+    }
+}
+
+/// 播放调度器：音频文件的读取、格式转换与调度全部在 audioIOQueue（后台串行
+/// 队列）执行，不阻塞主线程。AVAudioFile / AVAudioConverter 在此串行访问；
+/// AVAudioPlayerNode 本身线程安全，可跨线程调用 scheduleBuffer。
+/// 采用"阈值预填"：队列余量（已调度 - 已播完）低于 refillThresholdSeconds 时
+/// 提前补填到 targetSeconds（~2 秒），内存预算与原实现一致，但消除了
+/// "用完再填"导致的断音窗口。
+private final class PlayerScheduler {
+    let playerNode: AVAudioPlayerNode
+    private let audioIOQueue = DispatchQueue(label: "com.shengchao.audioIO", qos: .userInitiated)
+    private var activeSession: PlaybackSession?
+    /// 队列目标余量（秒）：保持 ~2 秒 PCM 内存预算（内存不增加）
+    private static let targetSeconds = 2.0
+    /// 余量低于该阈值（秒）时提前补填
+    private static let refillThresholdSeconds = 0.5
+
+    init(playerNode: AVAudioPlayerNode) {
+        self.playerNode = playerNode
+    }
+
+    /// 停止当前播放并从指定文件段开始播放（可在任意线程调用）。
+    /// "停止旧歌 → 建立新会话 → 补填 → 恢复播放"全部在 audioIOQueue 串行执行，
+    /// 避免切歌时旧歌 buffer 在 stop() 之后又被塞回播放节点（上一首多播几秒）。
+    func startPlayback(file: AVAudioFile,
+                       startFrame: AVAudioFramePosition,
+                       frameCount: AVAudioFramePosition,
+                       shouldPlay: Bool,
+                       completion: @escaping () -> Void) {
+        audioIOQueue.async { [weak self] in
+            guard let self else { return }
+            // 1) 先作废旧会话并清空播放节点：丢弃旧歌已调度的所有 buffer
+            self.activeSession = nil
+            self.playerNode.stop()
+            // 2) 建立新会话并补填（首块即被调度）
+            let session = PlaybackSession(file: file,
+                                          startFrame: startFrame,
+                                          frameCount: frameCount,
+                                          dstFormat: self.playerNode.outputFormat(forBus: 0),
+                                          onFinish: completion)
+            self.activeSession = session
+            self.refill(session)
+            // 3) 恢复播放（seek 前若暂停则保持暂停）
+            if shouldPlay { self.playerNode.play() }
+        }
+    }
+
+    /// 补填：余量（已调度 - 已播完）低于目标且源未读完时继续调度 buffer。
+    private func refill(_ session: PlaybackSession) {
+        guard activeSession === session else { return }
+        let capacity: AVAudioFrameCount = 16384
+
+        while !session.allScheduled,
+              session.scheduledSeconds - session.consumedSeconds < Self.targetSeconds {
+            guard let (bufOpt, srcFrames, done) = readBlock(session, capacity) else {
+                // 读取/转换失败 → 结束本次播放（回主线程走收尾逻辑）
+                finish(session)
+                return
+            }
+            session.fileFramesRead += srcFrames
+            if done { session.allScheduled = true }
+            guard let buf = bufOpt, buf.frameLength > 0 else {
+                // 无新数据但未结束（异常）→ 停止，避免死循环
+                finish(session)
+                return
+            }
+            let sec = Double(buf.frameLength) / buf.format.sampleRate
+            session.scheduledSeconds += sec
+            // 防御：调度前再次校验会话身份，避免切歌后旧歌 buffer 被塞回
+            guard activeSession === session else { return }
+            playerNode.scheduleBuffer(buf, at: nil, options: []) { [weak self] in
+                self?.audioIOQueue.async {
+                    self?.bufferConsumed(session, seconds: sec)
+                }
+            }
+        }
+        checkSessionDone(session)
+    }
+
+    /// 读一块：返回 (输出buffer, 消耗的源帧数, 源是否已读完/无更多输出)。
+    /// 需格式转换时经 converter 输出（其输入块从源文件读取）。
+    private func readBlock(_ session: PlaybackSession,
+                           _ capacity: AVAudioFrameCount) -> (AVAudioPCMBuffer?, AVAudioFramePosition, Bool)? {
+        // 无转换：直接从源文件读一块
+        if session.converter == nil {
+            let framesLeft = session.totalFrames - session.fileFramesRead
+            guard framesLeft > 0 else { return nil }
+            let toRead = AVAudioFrameCount(min(Int(capacity), Int(framesLeft)))
+            guard let buf = AVAudioPCMBuffer(pcmFormat: session.srcFormat, frameCapacity: toRead) else {
+                return nil
+            }
+            do { try session.file.read(into: buf, frameCount: toRead) } catch { return nil }
+            let frames = AVAudioFramePosition(buf.frameLength)
+            let done = session.fileFramesRead + frames >= session.totalFrames  // 源已读到末尾
+            return (buf.frameLength > 0 ? buf : nil, frames, done)
+        }
+
+        // 需要格式转换
+        guard let converter = session.converter,
+              let outBuf = AVAudioPCMBuffer(pcmFormat: session.dstFormat, frameCapacity: capacity) else {
+            return nil
+        }
+        outBuf.frameLength = 0
+        var convErr: NSError?
+        var srcRead: AVAudioFramePosition = 0
+        let status = converter.convert(to: outBuf, error: &convErr) { _, outStatus in
+            let framesLeft = session.totalFrames - session.fileFramesRead
+            guard framesLeft > 0,
+                  let srcBuf = AVAudioPCMBuffer(pcmFormat: session.srcFormat,
+                                                frameCapacity: AVAudioFrameCount(min(Int(capacity), Int(framesLeft)))) else {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            do { try session.file.read(into: srcBuf, frameCount: srcBuf.frameCapacity) } catch {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            srcRead += AVAudioFramePosition(srcBuf.frameLength)
+            guard srcBuf.frameLength > 0 else {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            outStatus.pointee = .haveData
+            return srcBuf
+        }
+        if status == .error || convErr != nil {
+            return nil
+        }
+        // status == .endOfStream 时本次输出为最后一批（转换器尾部残帧已含在 outBuf）
+        return (outBuf.frameLength > 0 ? outBuf : nil, srcRead, status == .endOfStream)
+    }
+
+    /// 一块 buffer 播完回调（audioIOQueue 上执行）：累加已播时长并视情况补填/收尾。
+    private func bufferConsumed(_ session: PlaybackSession, seconds: Double) {
+        guard activeSession === session else { return }
+        session.consumedSeconds += seconds
+        // 源未读完且余量低于阈值 → 提前补填；否则已全部调度，等待收尾判定
+        if !session.allScheduled,
+           session.scheduledSeconds - session.consumedSeconds < Self.refillThresholdSeconds {
+            refill(session)
+        }
+        checkSessionDone(session)
+    }
+
+    /// 判定整段是否播完：已全部调度且已播时长达到总时长 → 触发播完回调。
+    private func checkSessionDone(_ session: PlaybackSession) {
+        guard activeSession === session else { return }
+        if session.allScheduled, session.consumedSeconds >= session.totalSeconds - 1e-6 {
+            finish(session)
+        }
+    }
+
+    /// 结束当前会话：作废 activeSession 并触发播完/收尾回调（由回调回主线程）。
+    private func finish(_ session: PlaybackSession) {
+        guard activeSession === session else { return }
+        activeSession = nil
+        session.onFinish()
+    }
+}
+
 // MARK: - 音频库（扫描 + 播放）
 
 @MainActor
@@ -399,8 +596,6 @@ final class AudioLibrary: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
-    /// 播放代际：play/seek 时自增，批量调度回调里检查是否过期
-    private var playGeneration = 0
     /// 引擎配置变化（音频设备切换）通知观察者
     private var configChangeObserver: NSObjectProtocol?
     /// 配置变化处理节流时间戳（同一变化可能连发多个通知）
@@ -450,9 +645,8 @@ final class AudioLibrary: ObservableObject {
         lastConfigChangeHandled = now
 
         // 关键：先使旧的播完回调失效——engine/playerNode 停止会触发已调度
-        // buffer 的 completion（误判"播完"→ 自动切到下一首），必须抢先更新令牌；
-        // 且可能有旧回调先于本函数排队执行，令牌之外用切换标志兜底
-        scheduleToken = UUID()
+        // buffer 的 completion（误判"播完"→ 自动切到下一首）。旧回调会因
+        // activeSession 身份不符被 audioIOQueue 忽略；切换标志再兜底一次。
         isDeviceSwitching = true
         defer { isDeviceSwitching = false }
 
@@ -492,27 +686,22 @@ final class AudioLibrary: ObservableObject {
             let file = try AVAudioFile(forReading: track.url)
             let sampleRate = file.processingFormat.sampleRate
             let clamped = max(0, min(resumeTime, max(track.duration, 0)))
-            playGeneration += 1
-            playerNode.stop()
             let startFrame = AVAudioFramePosition((track.startOffset + clamped) * sampleRate)
             // 与 seek 一致：frameCount 用分轨剩余帧数（CUE 分轨不越界）
             let remaining = AVAudioFramePosition((track.duration - clamped) * sampleRate)
             let frameCount = AVAudioFramePosition(max(0, min(remaining, file.length - startFrame)))
 
-            let token = UUID()
-            scheduleToken = token
+            // 重建拓扑后由 PlayerScheduler 在后台串行重建会话并恢复播放
             scheduleSegment(file: file, startFrame: startFrame,
-                            frameCount: frameCount) { [weak self] in
+                            frameCount: frameCount, shouldPlay: wasPlaying) { [weak self] in
                 DispatchQueue.main.async {
-                    guard let self, self.scheduleToken == token else { return }
-                    self.advanceOrStop()
+                    self?.advanceOrStop()
                 }
             }
             playerNode.volume = savedVolume
             scheduleStartTime = clamped
             currentTime = clamped
             if wasPlaying {
-                playerNode.play()
                 isPlaying = true
             }
         } catch {
@@ -531,8 +720,10 @@ final class AudioLibrary: ObservableObject {
     private var progressTimer: Timer?
     private var bitrateProfile: [(time: Double, bitrate: Double)] = []
     private var profileTask: Task<Void, Never>?
-    /// 当前 schedule 令牌：切歌/seek 时递增，防止旧播完回调误触发
-    private var scheduleToken = UUID()
+
+    /// 播放调度器：音频读取、转换与调度在后台串行队列执行（不阻塞主线程）。
+    /// 首次在 scheduleSegment（主线程）访问时初始化，之后由后台队列复用。
+    private lazy var scheduler = PlayerScheduler(playerNode: playerNode)
 
     // 当前 macOS 原生可解码的格式
     private static nonisolated let supportedExtensions: Set<String> = [
@@ -1240,141 +1431,19 @@ final class AudioLibrary: ObservableObject {
 
     // MARK: - 播放
 
-    /// 将文件的一段（含格式转换）调度到播放节点。
-    /// 源文件可能是任意采样率/声道（如单声道 FLAC、96kHz WAV），
-    /// 统一经 AVAudioConverter 转为播放节点输出格式后再 scheduleBuffer，
-    /// 避免 scheduleSegment 对声道/采样率不匹配崩溃。
-    /// 将文件的一段（含格式转换）批量流式调度到播放节点。
-    /// 每批 ~2 秒音频（54 块），播完一批的回调里再调度下一批，
-    /// 队列里同时只保留 ~2 秒 PCM（<10MB），而非整首歌（100MB+）。
+    /// 将文件的一段（含格式转换）流式调度到播放节点。
+    /// 源文件可能是任意采样率/声道（如单声道 FLAC、96kHz WAV），统一经
+    /// AVAudioConverter 转为播放节点输出格式后再 scheduleBuffer。
+    /// 实际调度由 PlayerScheduler 在后台串行队列执行（不阻塞主线程，阈值预填），
+    /// 内存预算保持 ~2 秒 PCM 不变。
     private func scheduleSegment(file: AVAudioFile,
                                  startFrame: AVAudioFramePosition,
                                  frameCount: AVAudioFramePosition,
+                                 shouldPlay: Bool,
                                  completion: @escaping () -> Void) {
-        playGeneration += 1
-        let gen = playGeneration
-
-        let srcFormat = file.processingFormat
-        let dstFormat = playerNode.outputFormat(forBus: 0)
-        let needsConversion = srcFormat != dstFormat
-
-        file.framePosition = startFrame
-        let remainingFrames = min(frameCount, file.length - startFrame)
-
-        guard remainingFrames > 0 else {
-            completion()
-            return
-        }
-
-        let capacity: AVAudioFrameCount = 16384
-        let batchBlocks = 54  // ~2 秒
-        var scheduled: AVAudioFramePosition = 0
-
-        if !needsConversion {
-            func scheduleBatch() {
-                guard gen == playGeneration else { return }
-                var lastBuf: AVAudioPCMBuffer?
-                var blocksInBatch = 0
-                while blocksInBatch < batchBlocks && scheduled < remainingFrames {
-                    let framesLeft = remainingFrames - scheduled
-                    let toRead = AVAudioFrameCount(min(Int(capacity), Int(framesLeft)))
-                    guard let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: toRead) else {
-                        completion(); return
-                    }
-                    do { try file.read(into: srcBuf, frameCount: toRead) } catch {
-                        completion(); return
-                    }
-                    guard srcBuf.frameLength > 0 else { break }
-                    scheduled += AVAudioFramePosition(srcBuf.frameLength)
-                    if let prev = lastBuf {
-                        playerNode.scheduleBuffer(prev, at: nil, options: [], completionHandler: nil)
-                    }
-                    lastBuf = srcBuf
-                    blocksInBatch += 1
-                }
-                if let lastBuf {
-                    let isLast = scheduled >= remainingFrames
-                    playerNode.scheduleBuffer(lastBuf, at: nil, options: []) {
-                        guard gen == self.playGeneration else { return }
-                        Task { @MainActor in
-                            guard gen == self.playGeneration else { return }
-                            if isLast { completion() } else { scheduleBatch() }
-                        }
-                    }
-                } else {
-                    completion()
-                }
-            }
-            scheduleBatch()
-            return
-        }
-
-        // 需要格式转换
-        guard let converter = AVAudioConverter(from: srcFormat, to: dstFormat) else {
-            completion()
-            return
-        }
-        func scheduleConvertedBatch() {
-            guard gen == playGeneration else { return }
-            var lastBuf: AVAudioPCMBuffer?
-            var blocksInBatch = 0
-            var batchFinished = false
-            var completionAttached = false
-            while blocksInBatch < batchBlocks && !batchFinished {
-                guard let outBuf = AVAudioPCMBuffer(pcmFormat: dstFormat, frameCapacity: capacity) else {
-                    completion(); return
-                }
-                outBuf.frameLength = 0
-                var convErr: NSError?
-                let status = converter.convert(to: outBuf, error: &convErr) { _, outStatus in
-                    let framesLeft = remainingFrames - scheduled
-                    let toRead = AVAudioFrameCount(min(Int(capacity), Int(framesLeft)))
-                    guard toRead > 0,
-                          let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: toRead) else {
-                        outStatus.pointee = .endOfStream
-                        return nil
-                    }
-                    do { try file.read(into: srcBuf, frameCount: toRead) } catch {
-                        outStatus.pointee = .endOfStream
-                        return nil
-                    }
-                    scheduled += AVAudioFramePosition(srcBuf.frameLength)
-                    guard srcBuf.frameLength > 0 else {
-                        outStatus.pointee = .endOfStream
-                        return nil
-                    }
-                    outStatus.pointee = .haveData
-                    return srcBuf
-                }
-                if status == .error || convErr != nil {
-                    if !completionAttached { completion() }
-                    return
-                }
-                if outBuf.frameLength > 0 {
-                    if let prev = lastBuf {
-                        playerNode.scheduleBuffer(prev, at: nil, options: [], completionHandler: nil)
-                    }
-                    lastBuf = outBuf
-                    blocksInBatch += 1
-                }
-                if status == .endOfStream { batchFinished = true }
-            }
-            if let lastBuf {
-                let isLast = scheduled >= remainingFrames
-                playerNode.scheduleBuffer(lastBuf, at: nil, options: []) {
-                    guard gen == self.playGeneration else { return }
-                    Task { @MainActor in
-                        guard gen == self.playGeneration else { return }
-                        if isLast { completion() } else { scheduleConvertedBatch() }
-                    }
-                }
-                completionAttached = true
-            }
-            if !completionAttached {
-                completion()
-            }
-        }
-        scheduleConvertedBatch()
+        scheduler.startPlayback(file: file, startFrame: startFrame,
+                                frameCount: frameCount, shouldPlay: shouldPlay,
+                                completion: completion)
     }
 
     func play(_ track: AudioTrack) {
@@ -1411,8 +1480,6 @@ final class AudioLibrary: ObservableObject {
         }
 
         do {
-            playGeneration += 1
-            playerNode.stop()
             let file = try AVAudioFile(forReading: effectiveTrack.url)
             let srcFormat = file.processingFormat
             let sampleRate = srcFormat.sampleRate
@@ -1422,18 +1489,15 @@ final class AudioLibrary: ObservableObject {
             let trackFrames = AVAudioFramePosition(effectiveTrack.duration * sampleRate)
             let frameCount = AVAudioFramePosition(max(0, min(trackFrames, file.length - startFrame)))
 
-            let token = UUID()
-            scheduleToken = token
+            // 停止旧歌 + 建立新会话 + 恢复播放由 PlayerScheduler 在后台串行完成，
+            // 避免切歌时旧歌 buffer 在 stop 之后被塞回播放节点
             scheduleSegment(file: file, startFrame: startFrame,
-                            frameCount: frameCount) { [weak self] in
-                // 播完回调（音频线程）→ 主线程处理，且校验令牌避免误触发
+                            frameCount: frameCount, shouldPlay: true) { [weak self] in
                 DispatchQueue.main.async {
-                    guard let self, self.scheduleToken == token else { return }
-                    self.advanceOrStop()
+                    self?.advanceOrStop()
                 }
             }
             playerNode.volume = Float(volume)
-            playerNode.play()
 
             currentTrack = effectiveTrack
             isPlaying = true
@@ -1467,30 +1531,24 @@ final class AudioLibrary: ObservableObject {
         do {
             let file = try AVAudioFile(forReading: track.url)
             let sampleRate = file.processingFormat.sampleRate
-            playGeneration += 1
-            playerNode.stop()
             let startFrame = AVAudioFramePosition((track.startOffset + clamped) * sampleRate)
             // 关键：frameCount 用「分轨剩余帧数」而非分轨总帧数——
             // 否则 seek 到分轨后半段后会越过分轨末尾（CUE 分轨进度条错乱、切歌时机错误）
             let remaining = AVAudioFramePosition((track.duration - clamped) * sampleRate)
             let frameCount = AVAudioFramePosition(max(0, min(remaining, file.length - startFrame)))
 
-            let token = UUID()
-            scheduleToken = token
+            // 停止旧调度 + 建立新会话 + 恢复播放由 PlayerScheduler 在后台串行完成
             scheduleSegment(file: file, startFrame: startFrame,
-                            frameCount: frameCount) { [weak self] in
+                            frameCount: frameCount, shouldPlay: wasPlaying) { [weak self] in
                 DispatchQueue.main.async {
-                    guard let self, self.scheduleToken == token else { return }
-                    self.advanceOrStop()
+                    self?.advanceOrStop()
                 }
             }
             playerNode.volume = Float(volume)
-            playerNode.play()
             currentTime = clamped
             scheduleStartTime = clamped
             // 保持原播放状态：seek 前暂停则 seek 后仍暂停（位置已更新）
             if !wasPlaying {
-                playerNode.pause()
                 isPlaying = false
             } else if !isPlaying {
                 isPlaying = true
