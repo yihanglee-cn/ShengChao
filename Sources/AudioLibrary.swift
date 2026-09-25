@@ -802,11 +802,8 @@ final class AudioLibrary: ObservableObject {
             Self.saveCache(newCache)
         }
 
-        // 9. 汇总 + 遗漏检查
+        // 9. 汇总（不再追加「未发现遗漏」提示，顶栏只保留扫描结果汇总）
         statusMessage = "扫描完成：\(allTracks.count) 首 · \(sortedAlbums.count) 张专辑"
-        if warnings.isEmpty {
-            warnings.append("✅ 未发现遗漏，全部音乐已入库（含 CUE 分轨）")
-        }
     }
 
     /// 按分组 + 排序重建曲库视图，并设置播放队列

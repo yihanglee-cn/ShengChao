@@ -259,12 +259,9 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     TopBar(library: library, showSettings: $showSettings)
                         .padding(.horizontal, ui.s(20))
-                        .padding(.top, ui.s(12))
-                        .padding(.bottom, ui.s(10))
-
-                    if !library.statusMessage.isEmpty {
-                        statusBar
-                    }
+                        // 顶部/底部留白固定，不随界面缩放档位放大，避免大档位下顶部空隙过大
+                        .padding(.top, 8)
+                        .padding(.bottom, 8)
 
                     HStack(spacing: ui.s(14)) {
                         Sidebar(selected: $selectedSidebar, library: library)
@@ -388,12 +385,12 @@ struct ContentView: View {
                 case 124: // 右方向键
                     library.next()
                     return nil
-                case 126: // 上方向键：音量 +5%
-                    library.volume = min(1.0, library.volume + 0.05)
+                case 126: // 上方向键：音量 +1%（1 格）；长按经系统按键重复持续上调
+                    library.volume = min(1.0, library.volume + 0.01)
                     showVolumeIndicator()
                     return nil
-                case 125: // 下方向键：音量 -5%
-                    library.volume = max(0.0, library.volume - 0.05)
+                case 125: // 下方向键：音量 -1%（1 格）；长按经系统按键重复持续下调
+                    library.volume = max(0.0, library.volume - 0.01)
                     showVolumeIndicator()
                     return nil
                 case 37: // L：切换歌词面板（同大封面右上角「词」按钮）
@@ -1047,28 +1044,6 @@ struct ContentView: View {
         return idx
     }
 
-    private var statusBar: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !library.statusMessage.isEmpty {
-                HStack(spacing: ui.s(8)) {
-                    if library.isScanning {
-                        ProgressView().controlSize(.small)
-                    }
-                    Text(library.statusMessage)
-                        .font(ui.fs(FB.footnote))
-                        .foregroundStyle(theme.secondaryText)
-                }
-            }
-            ForEach(library.warnings, id: \.self) { warning in
-                Text(warning)
-                    .font(ui.fs(FB.footnote))
-                    .foregroundStyle(warning.hasPrefix("✅") ? .green.opacity(0.9) : .yellow.opacity(0.9))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, ui.s(24))
-        .padding(.bottom, ui.s(8))
-    }
 }
 
 // MARK: - 背景（彩色光斑）
@@ -1151,6 +1126,29 @@ struct TopBar: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(ui.s(14))
+            }
+
+            // 扫描状态 / 提示文本（并入顶栏，让顶部更紧凑，不再单独占一行）
+            if !library.statusMessage.isEmpty || !library.warnings.isEmpty {
+                HStack(spacing: ui.s(6)) {
+                    if library.isScanning {
+                        ProgressView().controlSize(.small)
+                    }
+                    if !library.statusMessage.isEmpty {
+                        Text(library.statusMessage)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    ForEach(library.warnings, id: \.self) { warning in
+                        Text(warning)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(warning.hasPrefix("✅") ? Color.green.opacity(0.9) : Color.yellow.opacity(0.9))
+                    }
+                }
+                .font(ui.fs(FB.footnote))
+                .foregroundStyle(theme.secondaryText)
+                .padding(.leading, ui.s(6))
             }
 
             Spacer()
