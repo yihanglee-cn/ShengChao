@@ -977,6 +977,8 @@ struct ContentView: View {
                                 .font(.system(size: isCurrent ? currentFontSize : secondaryFontSize,
                                               weight: isCurrent ? .semibold : .regular))
                                 .foregroundColor(.white.opacity(isCurrent ? 1.0 : 0.4))
+                                // 长句自动换行时，多行文本在自身框内也居中（避免第二行左对齐）
+                                .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 // 背景测量真实位置（长句自动换行后按整块中心计算模糊）
                                 .background(
