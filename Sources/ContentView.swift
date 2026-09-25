@@ -2120,6 +2120,7 @@ struct TrackRow: View {
     @ObservedObject var library: AudioLibrary
     @AppStorage("nightMode") private var nightMode = true
             private var theme: AppTheme { nightMode ? .night : .day }
+    @State private var confirmDelete = false
 
     var body: some View {
         HStack(spacing: ui.s(8)) {
@@ -2187,6 +2188,22 @@ struct TrackRow: View {
                     }
                 }
             }
+            Divider()
+            Button(role: .destructive) {
+                confirmDelete = true
+            } label: {
+                Label("永久删除", systemImage: "trash")
+            }
+        }
+        .confirmationDialog(
+            "确定要从磁盘永久删除《\(track.title)》？此操作不可恢复。",
+            isPresented: $confirmDelete,
+            titleVisibility: .visible
+        ) {
+            Button("永久删除", role: .destructive) {
+                library.removeTrackPermanently(track)
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 }

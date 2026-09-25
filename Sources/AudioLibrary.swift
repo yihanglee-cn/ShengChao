@@ -163,6 +163,28 @@ final class ArtworkCache {
     func clear() {
         cache.removeAllObjects()
     }
+
+    /// 清理单首歌曲的封面缓存：内存中该曲目的封面/缩略图 + 磁盘落盘的封面原图与各尺寸缩略图。
+    /// 删除本地歌曲时调用，避免 artwork 目录残留孤儿文件。
+    /// - Parameters:
+    ///   - key: 缓存 key（通常为曲目 url.path）
+    ///   - diskName: 落盘封面文件名（如 nil 则只清内存缓存）
+    func removeArtifacts(forKey key: String, diskName: String?) {
+        // 内存缓存：封面图 + 列表用的缩略图（maxSize 200）
+        cache.removeObject(forKey: key as NSString)
+        cache.removeObject(forKey: "\(key)_thumb_200" as NSString)
+        // 磁盘落盘：封面原图 + 所有尺寸的缩略图
+        guard let diskName else { return }
+        let fm = FileManager.default
+        let dir = Self.diskArtworkDirectory
+        try? fm.removeItem(at: dir.appendingPathComponent(diskName))
+        if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+            for file in files where file.lastPathComponent.hasPrefix("thumb_")
+                && file.lastPathComponent.hasSuffix("_" + diskName) {
+                try? fm.removeItem(at: file)
+            }
+        }
+    }
 }
 
 // MARK: - 数据模型
@@ -2066,6 +2088,93 @@ final class AudioLibrary: ObservableObject {
         let key = favoriteKey(for: track)
         playlists[idx].trackKeys.removeAll { $0 == key }
         savePlaylists()
+    }
+
+    // MARK: - 永久删除本地歌曲
+
+    /// 从本地磁盘永久删除歌曲文件，并清理曲库索引、专辑分组、播放队列、收藏、播放列表与封面缓存。
+    /// 顺序为先删磁盘文件（失败则不动任何索引），成功后再清理所有引用并落盘，避免"文件还在列表却没了"。
+    /// - Returns: 磁盘文件是否删除成功（文件本就不存在也视为成功）
+    @discardableResult
+    func removeTrackPermanently(_ track: AudioTrack) -> Bool {
+        let key = favoriteKey(for: track)   // url|offset 稳定标识，与收藏/播放列表同构
+        let rawPath = track.url.path        // 封面内存缓存用的 key
+        let stdPath = track.url.standardizedFileURL.path
+
+        // 1) 若正在播放该曲目，先停止播放并清空播放状态（释放文件句柄，避免悬空）。
+        //    用 isDeviceSwitching 挡住在途的"播完回调"，避免删歌瞬间误自动切到别的歌。
+        if let current = currentTrack, favoriteKey(for: current) == key {
+            isDeviceSwitching = true
+            defer { isDeviceSwitching = false }
+            playerNode.stop()
+            stopProgressTimer()
+            currentTrack = nil
+            isPlaying = false
+            currentTime = 0
+            liveBitrate = nil
+        }
+
+        // 2) 先删除磁盘上的音频文件：不存在视为成功；失败则不碰索引，仅提示
+        let fm = FileManager.default
+        if fm.fileExists(atPath: stdPath) {
+            do {
+                try fm.removeItem(atPath: stdPath)
+            } catch {
+                warnings = ["无法删除文件：\(track.title)（\(error.localizedDescription)）"]
+                return false
+            }
+        }
+
+        // 3) 清理封面磁盘落盘 + 内存缓存（缩略图等不再残留）
+        ArtworkCache.shared.removeArtifacts(forKey: rawPath, diskName: Self.artworkDiskName(for: track))
+
+        // 4) 从曲库索引、专辑分组移除，并同步刷新当前选中的专辑视图
+        tracks.removeAll { favoriteKey(for: $0) == key }
+        removeFromAlbums(key: key)
+        if let sa = selectedAlbum, sa.tracks.contains(where: { favoriteKey(for: $0) == key }) {
+            selectedAlbum = albums.first { $0.id == sa.id }
+        }
+
+        // 5) 从播放队列、最近播放、收藏、播放列表移除所有引用
+        playQueue.removeAll { favoriteKey(for: $0) == key }
+        recentTracks.removeAll { favoriteKey(for: $0) == key }
+        if favoriteKeys.contains(key) {
+            favoriteKeys.remove(key)
+            UserDefaults.standard.set(Array(favoriteKeys), forKey: "favoriteTracks")
+        }
+        for i in playlists.indices {
+            playlists[i].trackKeys.removeAll { $0 == key }
+        }
+        savePlaylists()
+
+        // 6) 同步落盘曲库缓存，避免重启后旧曲目复活
+        persistCacheAfterRemoval(path: stdPath, key: key)
+        return true
+    }
+
+    /// 从专辑分组移除指定 key 的曲目（空专辑一并删除）
+    private func removeFromAlbums(key: String) {
+        albums = albums.compactMap { album in
+            let remaining = album.tracks.filter { favoriteKey(for: $0) != key }
+            guard !remaining.isEmpty else { return nil }
+            return AlbumGroup(id: album.id, name: album.name, artist: album.artist,
+                              artworkData: album.artworkData, artworkPath: album.artworkPath,
+                              tracks: remaining, folderURL: album.folderURL,
+                              dynamicCoverURL: album.dynamicCoverURL)
+        }
+    }
+
+    /// 删除歌曲后更新曲库磁盘缓存（移除该文件的索引与签名，避免重启后旧曲目复活）
+    private func persistCacheAfterRemoval(path: String, key: String) {
+        guard var cache = Self.loadCache() else { return }
+        cache.tracks.removeAll { Self.trackKey($0) == key || $0.url.standardizedFileURL.path == path }
+        cache.signatures[path] = nil
+        cache.failed[path] = nil
+        cache.cueSignatures[path] = nil
+        // CUE 展开的曲目 key 一并移除；若整个 cue 已无有效曲目则删除该键
+        cache.cueTrackKeys = cache.cueTrackKeys.mapValues { $0.filter { $0 != key } }
+            .filter { !$0.value.isEmpty }
+        Self.saveCache(cache)
     }
 
     func isInPlaylist(_ track: AudioTrack, _ playlist: Playlist) -> Bool {
