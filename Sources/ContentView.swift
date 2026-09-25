@@ -642,33 +642,46 @@ struct ContentView: View {
                               y: showFullCover ? wf.height - 55 : wf.height - 65)
                     .animation(.easeInOut(duration: coverAnimationDuration), value: showFullCover)
 
-                // 歌名/歌手/专辑（全屏封面模式下固定显示在歌词上方，不随控制区隐藏）
+                // 右侧内容：全屏封面模式下「歌名 + 歌词」作为一个整体，在区域内垂直居中
                 if showFullCover && fullScreenCoverMode, let track = library.currentTrack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(track.title)
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                        Text("\(track.artist) · \(track.album)")
-                            .font(.system(size: 15))
-                            .foregroundColor(.white.opacity(0.7))
-                            .lineLimit(1)
-                    }
-                    .frame(width: max(480, wf.width - 40 - (wf.width / 2 + 60)), alignment: .leading)
-                    .position(x: wf.width / 2 + 60 + max(480, wf.width - 40 - (wf.width / 2 + 60)) / 2, y: 70)
-                    .zIndex(5)
-                }
-
-                // 歌词（右侧，纵向充满窗口，向右扩展）
-                if showLyrics {
                     let lyricsLeft = wf.width / 2 + 60
                     let lyricsWidth = max(480, wf.width - 40 - lyricsLeft)
-                    // 全屏封面模式下歌词从歌名下方（y=130）开始，避免重叠
-                    let topInset: CGFloat = fullScreenCoverMode ? 130 : 0
-                    let lyricHeight = wf.height - topInset
+                    // 歌名块高度 + 上下对称留白，让整块在右侧区域内垂直居中
+                    let titleBlockH: CGFloat = 64
+                    let sideMargin: CGFloat = 60
+                    let lyricHeight = max(320, wf.height - titleBlockH - 2 * sideMargin)
+                    VStack(spacing: 0) {
+                        VStack(alignment: .center, spacing: 4) {
+                            Text(track.title)
+                                .font(.system(size: 34, weight: .bold))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                            Text("\(track.artist) · \(track.album)")
+                                .font(.system(size: 15))
+                                .foregroundColor(.white.opacity(0.7))
+                                .lineLimit(1)
+                        }
+                        .frame(width: lyricsWidth, alignment: .center)
+                        .padding(.bottom, 24)
+                        if showLyrics {
+                            lyricsPanel(height: lyricHeight, width: lyricsWidth)
+                                .frame(width: lyricsWidth, height: lyricHeight)
+                                .onTapGesture { }
+                        }
+                    }
+                    .frame(width: lyricsWidth)
+                    .position(x: lyricsLeft + lyricsWidth / 2, y: wf.height / 2)
+                    .transition(.opacity)
+                    .zIndex(5)
+                }
+                // 窗口化（非全屏封面）模式：歌词纵向充满窗口，向右扩展（保持原样）
+                if showLyrics && !fullScreenCoverMode {
+                    let lyricsLeft = wf.width / 2 + 60
+                    let lyricsWidth = max(480, wf.width - 40 - lyricsLeft)
+                    let lyricHeight = wf.height
                     lyricsPanel(height: lyricHeight, width: lyricsWidth)
                         .frame(width: lyricsWidth, height: lyricHeight)
-                        .position(x: lyricsLeft + lyricsWidth / 2, y: topInset + lyricHeight / 2)
+                        .position(x: lyricsLeft + lyricsWidth / 2, y: lyricHeight / 2)
                         .transition(.opacity)
                         .onTapGesture { }
                 }
@@ -910,7 +923,7 @@ struct ContentView: View {
         let lineSpacing = 44 * scale
         return ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: lineSpacing) {
+                VStack(alignment: .center, spacing: lineSpacing) {
                     if lines.isEmpty {
                         Text("暂无歌词")
                             .font(ui.fs(FB.headline, .semibold))
@@ -923,7 +936,7 @@ struct ContentView: View {
                                 .font(.system(size: isCurrent ? currentFontSize : secondaryFontSize,
                                               weight: isCurrent ? .semibold : .regular))
                                 .foregroundColor(.white.opacity(isCurrent ? 1.0 : 0.4))
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(maxWidth: .infinity, alignment: .center)
                                 // 背景测量真实位置（长句自动换行后按整块中心计算模糊）
                                 .background(
                                     GeometryReader { g in
