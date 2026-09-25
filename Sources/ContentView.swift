@@ -183,7 +183,42 @@ struct LyricMidKey: PreferenceKey {
     }
 }
 
+// MARK: - 全屏封面：窗口作用域透明光标（只影响声潮自己的窗口，不触及其他应用）
+
 // MARK: - 液态玻璃主界面
+
+/// 全屏封面控制区自动隐藏后，用「透明光标区域」隐藏本窗口内的鼠标。
+/// 原理是 cursor rects：仅对声明了光标区域的 NSView 生效，鼠标移出窗口 / 切换应用时
+/// 系统自动恢复箭头，天然按窗口作用域，不会像 NSCursor.hide() 那样全局泄漏到其它软件。
+final class IdleCursorView: NSView {
+    /// true = 控制区已隐藏，本窗口内显示透明光标；false = 恢复默认箭头
+    var cursorHidden = false {
+        didSet {
+            guard cursorHidden != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    override func resetCursorRects() {
+        guard cursorHidden else { return }
+        addCursorRect(bounds, cursor: Self.transparentCursor)
+    }
+
+    /// 1×1 全透明光标，等价于「隐藏」，但只在声潮本窗口内生效
+    private static let transparentCursor: NSCursor = {
+        let img = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
+        return NSCursor(image: img, hotSpot: .zero)
+    }()
+}
+
+/// 把 IdleCursorView 包成 SwiftUI 层，随 controlsVisible 切换隐藏 / 显示
+struct IdleCursorLayer: NSViewRepresentable {
+    let hidden: Bool
+    func makeNSView(context: Context) -> IdleCursorView { IdleCursorView() }
+    func updateNSView(_ nsView: IdleCursorView, context: Context) {
+        nsView.cursorHidden = hidden
+    }
+}
 
 struct ContentView: View {
     @ObservedObject private var library = AudioLibrary.shared
@@ -690,6 +725,15 @@ struct ContentView: View {
                 volumeIndicator
                     .position(x: wf.width / 2, y: 66 - windowTopInset)
                     .zIndex(30)
+
+                // 顶层：全屏封面控制区隐藏时，把本窗口内鼠标也隐藏
+                // （cursor rect 只作用于声潮窗口，鼠标移出 / 切应用自动恢复箭头）
+                if fullScreenCoverMode, showFullCover {
+                    IdleCursorLayer(hidden: !controlsVisible)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .allowsHitTesting(false)
+                        .zIndex(40)
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .clipped()
