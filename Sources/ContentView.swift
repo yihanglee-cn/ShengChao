@@ -317,6 +317,10 @@ struct ContentView: View {
         // 最小窗口尺寸随档位放大：避免放大后窗口过小导致大封面/歌词被裁切
         .frame(minWidth: ui.s(900), minHeight: ui.s(560))
         .background(HostWindowProbe { hostWindow = $0 })
+        // 让界面真正铺满整块屏幕：带刘海的内建屏全屏时，系统会在顶端留一条
+        // 刘海/菜单栏高度的安全区，若不忽略，界面整体下移、上方就空出一条黑边。
+        // 顶栏左右两簇内容在刘海两侧，中间是空的 Spacer，不会被刘海挡住。
+        .ignoresSafeArea()
         .onChange(of: uiScaleRaw) { oldValue, newValue in
             resizeWindow(from: oldValue, to: newValue)
         }
