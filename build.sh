@@ -91,6 +91,8 @@ cat > "${BUNDLE}/Contents/Info.plist" <<'PLIST'
     <string>26.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSPrefersDisplaySafeAreaCompatibilityMode</key>
+    <false/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key>
