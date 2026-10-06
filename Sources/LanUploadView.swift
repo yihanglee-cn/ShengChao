@@ -24,6 +24,7 @@ struct LanUploadPanel: View {
 
             card
         }
+        .onDisappear { releaseFirstResponder() }
     }
 
     // MARK: 卡片
@@ -125,10 +126,12 @@ struct LanUploadPanel: View {
                         .foregroundStyle(theme.secondaryText)
                     }
 
+                    // 不用 .textSelection(.enabled)：可选中文本会变成 NSTextView 抢占
+                    // 窗口 first responder，而全局键盘监视器「有文本框聚焦就放行」，
+                    // 会导致空格/方向键/切歌全部失效且关掉弹窗也不恢复。复制用右侧按钮。
                     Text(url)
                         .font(.system(size: ui.s(14), weight: .semibold, design: .monospaced))
                         .foregroundStyle(theme.primaryText)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack {
@@ -326,7 +329,18 @@ struct LanUploadPanel: View {
     }
 
     private func dismiss() {
+        releaseFirstResponder()
         withAnimation(.easeInOut(duration: 0.15)) { show = false }
+    }
+
+    /// 弹窗内控件抢到的 first responder 必须交还窗口。
+    /// 全局键盘监视器（ContentView）遇到 NSTextView/NSTextField 聚焦会放行所有按键，
+    /// 若弹窗关掉后 responder 没还回去，空格/方向键/切歌/L/Z 会一直失效。
+    private func releaseFirstResponder() {
+        guard let window = NSApp.keyWindow, let responder = window.firstResponder else { return }
+        if responder is NSTextView || responder is NSTextField {
+            window.makeFirstResponder(nil)
+        }
     }
 
     private func copy(_ text: String) {
