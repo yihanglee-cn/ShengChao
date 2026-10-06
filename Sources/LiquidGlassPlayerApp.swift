@@ -67,6 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(false, forKey: "floatingOpen")
         // 启动时自动恢复曲库：磁盘缓存秒开 + 后台增量扫描（无需手动重新扫描）
         Task { @MainActor in
+            // 局域网上传落盘后，把新歌增量加入曲库
+            LanUploadServer.shared.onFilesUploaded = {
+                Task { @MainActor in
+                    await AudioLibrary.shared.rescanLibrary()
+                }
+            }
             await AudioLibrary.shared.autoRestore()
         }
     }

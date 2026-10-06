@@ -25,7 +25,7 @@ swiftc -parse-as-library \
   -sdk "${SDK}" \
   -target "${TARGET}" \
   -swift-version 5 \
-  -framework SwiftUI -framework AppKit -framework AVFoundation -framework CoreImage \
+  -framework SwiftUI -framework AppKit -framework AVFoundation -framework CoreImage -framework Network \
   -import-objc-header Sources/bridge.h \
   build/ort_bridge.o \
   vendor/libonnxruntime.1.dylib \
@@ -36,6 +36,8 @@ swiftc -parse-as-library \
   Sources/CueParser.swift \
   Sources/Lyrics.swift \
   Sources/AudioLibrary.swift \
+  Sources/LanUploadServer.swift \
+  Sources/LanUploadView.swift \
   Sources/Scrollbar.swift \
   Sources/UIScale.swift \
   Sources/ContentView.swift \

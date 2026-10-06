@@ -841,6 +841,30 @@ final class AudioLibrary: ObservableObject {
         await scan(roots: roots)
     }
 
+    /// 局域网上传的落盘目录：当前曲库的第一个扫描根目录
+    var primaryLibraryRoot: URL? {
+        guard let saved = UserDefaults.standard.stringArray(forKey: "libraryRoots"),
+              let first = saved.first else { return nil }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: first, isDirectory: &isDir),
+              isDir.boolValue else { return nil }
+        return URL(fileURLWithPath: first)
+    }
+
+    /// 局域网上传完成后重新入库（增量：只重读新增/变化的文件）
+    func rescanLibrary() async {
+        guard let saved = UserDefaults.standard.stringArray(forKey: "libraryRoots"),
+              !saved.isEmpty else { return }
+        let roots = saved.compactMap { path -> URL? in
+            var isDir: ObjCBool = false
+            let fm = FileManager.default
+            return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+                ? URL(fileURLWithPath: path) : nil
+        }
+        guard !roots.isEmpty else { return }
+        await scan(roots: roots)
+    }
+
     /// 增量扫描：只重读新增/变化/上次失败的文件，其余复用磁盘缓存；首次扫描则全量
     func scan(roots: [URL], incremental: Bool = true) async {
         isScanning = true

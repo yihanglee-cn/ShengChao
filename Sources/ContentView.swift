@@ -247,6 +247,7 @@ struct ContentView: View {
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
     @State private var hostWindow: NSWindow?
     @State private var showSettings = false
+    @State private var showUpload = false
 
     /// 界面缩放档位。
     /// 这里用局部计算属性而非 @Environment：本视图是缩放环境的**提供者**，
@@ -257,7 +258,7 @@ struct ContentView: View {
         GeometryReader { geo in
             ZStack {
                 VStack(spacing: 0) {
-                    TopBar(library: library, showSettings: $showSettings)
+                    TopBar(library: library, showSettings: $showSettings, showUpload: $showUpload)
                         .padding(.horizontal, ui.s(20))
                         // 顶部/底部留白固定，不随界面缩放档位放大，避免大档位下顶部空隙过大
                         .padding(.top, 8)
@@ -289,6 +290,13 @@ struct ContentView: View {
                     SettingsPanel(showSettings: $showSettings)
                         .transition(.opacity.combined(with: .scale(scale: 0.95)))
                         .zIndex(30)
+                }
+
+                // 局域网上传弹窗
+                if showUpload {
+                    LanUploadPanel(show: $showUpload)
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .zIndex(40)
                 }
 
                 if showFullCover && !fullScreenCoverMode {
@@ -1095,6 +1103,7 @@ struct TopBar: View {
     @Environment(\.uiScale) private var ui
     @ObservedObject var library: AudioLibrary
     @Binding var showSettings: Bool
+    @Binding var showUpload: Bool
     @AppStorage("nightMode") private var nightMode = true
     @State private var showVersion = false
     private var theme: AppTheme { nightMode ? .night : .day }
@@ -1161,6 +1170,22 @@ struct TopBar: View {
 
             HStack(spacing: ui.s(10)) {
                 // 自定义点击手势（避开 SwiftUI ButtonGesture 的崩溃路径），原玻璃外观
+                HStack(spacing: ui.s(6)) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(ui.fs(13, .medium))
+                    Text("上传")
+                }
+                .padding(.horizontal, ui.s(14))
+                .padding(.vertical, ui.s(7))
+                .glassEffect(in: Capsule())
+                .contentShape(Capsule())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showUpload = true
+                    }
+                }
+                .help("局域网上传歌曲（手机浏览器上传到当前曲库目录）")
+
                 HStack(spacing: ui.s(6)) {
                     Image(systemName: "folder.badge.plus")
                         .font(ui.fs(13, .medium))
