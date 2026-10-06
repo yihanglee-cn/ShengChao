@@ -141,23 +141,18 @@ struct LanUploadPanel: View {
             }
 
             if server.addresses.count > 1 {
-                HStack(spacing: ui.s(8)) {
+                // 不用原生 Picker：它跟随「系统」外观取色，系统浅色时会在深色弹窗上画成黑字。
+                VStack(alignment: .leading, spacing: ui.s(6)) {
                     Text("网卡")
                         .font(ui.fs(FB.caption))
                         .foregroundStyle(theme.secondaryText)
-                    Picker("", selection: Binding(
-                        get: { server.selectedAddress ?? "" },
-                        set: { server.selectedAddress = $0 }
-                    )) {
-                        ForEach(server.addresses) { address in
-                            Text("\(address.name) · \(address.ip)").tag(address.ip)
-                        }
+                    ForEach(server.addresses) { address in
+                        addressRow(address)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    Spacer(minLength: 0)
+                    Text("手机连的 Wi-Fi 对应哪块网卡，就选哪一个")
+                        .font(ui.fs(FB.caption2))
+                        .foregroundStyle(theme.tertiaryText)
                 }
-                .help("手机连的 Wi-Fi 对应哪块网卡，就选哪一个")
             }
 
             infoRow(title: "目标目录", value: server.uploadDirectory)
@@ -171,6 +166,7 @@ struct LanUploadPanel: View {
                         .truncationMode(.middle)
                     ProgressView(value: transfer.fraction)
                         .progressViewStyle(.linear)
+                        .tint(Color(red: 0.35, green: 0.62, blue: 1.0))
                     Text("\(byteText(transfer.sent)) / \(byteText(transfer.total))")
                         .font(ui.fs(FB.caption2))
                         .foregroundStyle(theme.secondaryText)
@@ -235,6 +231,29 @@ struct LanUploadPanel: View {
                 .truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 网卡选择行：全部用主题色自绘，不碰系统控件配色
+    private func addressRow(_ address: LanUploadServer.LanAddress) -> some View {
+        let selected = (server.selectedAddress ?? server.addresses.first?.ip) == address.ip
+        return HStack(spacing: ui.s(8)) {
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(ui.fs(FB.caption))
+                .foregroundStyle(selected ? Color(red: 0.35, green: 0.62, blue: 1.0) : theme.tertiaryText)
+            Text("\(address.name) · \(address.ip)")
+                .font(ui.fs(FB.caption, selected ? .semibold : .regular))
+                .foregroundStyle(theme.primaryText)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, ui.s(10))
+        .padding(.vertical, ui.s(6))
+        .background(theme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(selected ? 0.32 : 0.10), lineWidth: 0.5)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onTapGesture { server.selectedAddress = address.ip }
     }
 
     private func primaryButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
