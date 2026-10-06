@@ -433,7 +433,7 @@ final class LanUploadConnection {
             return false
         }
         respond(200, "OK", contentType: "text/html; charset=utf-8",
-                body: Data(Self.pageHTML(directory: pageDirectory).utf8))
+                body: Data(Self.pageHTML(directory: pageDirectory, token: token).utf8))
         return false
     }
 
@@ -827,7 +827,7 @@ final class MultipartParser {
 // MARK: - 手机端网页
 
 extension LanUploadConnection {
-    static func pageHTML(directory: String) -> String {
+    static func pageHTML(directory: String, token: String) -> String {
         let escaped = directory
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
@@ -878,6 +878,9 @@ extension LanUploadConnection {
         <script>
         var input = document.getElementById('f');
         var list = document.getElementById('list');
+        // 必须用绝对路径：页面地址是 /TOKEN（末尾无斜杠），
+        // 相对路径 'upload' 会被解析成 /upload，丢掉 TOKEN 导致 404
+        var UPLOAD_URL = '/\(token)/upload';
         input.addEventListener('change', function () {
           var files = Array.prototype.slice.call(input.files);
           input.value = '';
@@ -910,7 +913,7 @@ extension LanUploadConnection {
             list.appendChild(row);
 
             var xhr = new XMLHttpRequest();
-            xhr.open('POST', 'upload');
+            xhr.open('POST', UPLOAD_URL);
             xhr.upload.onprogress = function (e) {
               if (!e.lengthComputable) return;
               fill.style.width = (e.loaded / e.total * 100).toFixed(1) + '%';
@@ -922,8 +925,10 @@ extension LanUploadConnection {
                 st.className = 'st ok';
                 st.textContent = '已上传';
               } else {
+                var msg = xhr.responseText || ('HTTP ' + xhr.status);
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
                 st.className = 'st bad';
-                st.textContent = '失败：' + (xhr.responseText || xhr.status);
+                st.textContent = '失败：' + msg;
               }
               resolve();
             };
