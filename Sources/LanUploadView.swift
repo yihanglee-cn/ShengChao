@@ -12,14 +12,13 @@ struct LanUploadPanel: View {
     @Environment(\.theme) private var theme
     @ObservedObject private var server = LanUploadServer.shared
     @Binding var show: Bool
-    @AppStorage("nightMode") private var nightMode = true
     @State private var hoveringClose = false
     @State private var copied = false
 
     var body: some View {
         ZStack {
             // 点击空白处关闭
-            Color.black.opacity(0.28)
+            Color.black.opacity(0.45)
                 .ignoresSafeArea()
                 .onTapGesture { dismiss() }
 
@@ -48,6 +47,12 @@ struct LanUploadPanel: View {
         .padding(ui.s(20))
         .frame(width: ui.s(380))
         .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        // 白天模式的 .clear 玻璃几乎全透，彩色封面透上来后小字看不清；
+        // 在玻璃之下垫一层深色底，保证任何主题 / 任何背景图下文字都有对比度。
+        .background {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.black.opacity(0.80))
+        }
         .padding(.top, ui.s(60))
     }
 
