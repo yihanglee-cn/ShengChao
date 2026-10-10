@@ -64,6 +64,11 @@ enum AppTheme {
     /// 发丝线：分隔线 / 边框
     var hairline: Color { isDay ? Color.black.opacity(0.10) : Color.white.opacity(0.10) }
 
+    /// 浮层（设置面板等）底色：必须不透明，否则后面的封面会透上来把字糊掉
+    var panelBackground: Color {
+        isDay ? .white : Color(red: 44.0 / 255.0, green: 44.0 / 255.0, blue: 46.0 / 255.0)
+    }
+
     var glass: Glass {
         isDay ? .clear : .regular
     }
@@ -1340,7 +1345,16 @@ struct SettingsPanel: View {
             }
             .padding(ui.s(20))
             .frame(width: ui.s(300))
-            .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            // 设置面板以看清为第一优先：不透明底 + 描边 + 投影，不再用液态玻璃
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(theme.panelBackground)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(theme.hairline, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(theme.isDay ? 0.16 : 0.45), radius: 26, y: 10)
             .overlay(alignment: .topTrailing) {
                 closeButton
             }
@@ -1611,13 +1625,6 @@ struct Sidebar: View {
                 }
                 .padding(ui.s(14))
             }
-
-            Text("音乐资料库")
-                .font(ui.fs(FB.caption, .semibold))
-                .foregroundStyle(theme.secondaryText)
-                .padding(.horizontal, ui.s(16))
-                .padding(.top, ui.s(8))
-                .padding(.bottom, ui.s(8))
 
             ForEach(sidebarItems, id: \.name) { item in
                 if item.name == "播放列表" {
