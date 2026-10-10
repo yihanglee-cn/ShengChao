@@ -263,7 +263,7 @@ struct IdleCursorLayer: NSViewRepresentable {
 
 struct ContentView: View {
     @ObservedObject private var library = AudioLibrary.shared
-    @State private var selectedSidebar = "专辑"
+    @State private var selectedSidebar = "歌曲"
     @State private var showFullCover = false
     @State private var showLyrics = false
     @State private var coverVisible = false  // 大封面层可见性（关闭时延迟隐藏，保证回程动画可见）
@@ -2453,6 +2453,20 @@ struct SongListView: View {
         }
     }
 
+    /// 定位到正在播放的歌曲：若搜索把这些歌过滤掉了，先清空搜索再等列表重建后滚动。
+    private func locateCurrentTrack(_ id: AudioTrack.ID) {
+        let needsRebuild = !searchText.isEmpty
+        if needsRebuild {
+            searchText = ""
+        }
+        // 列表重建需要一帧时间，稍等再滚，否则目标行还不存在
+        DispatchQueue.main.asyncAfter(deadline: .now() + (needsRebuild ? 0.15 : 0)) {
+            withAnimation(.easeInOut(duration: 0.35)) {
+                position.scrollTo(id: id, anchor: .center)
+            }
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ui.s(16)) {
@@ -2507,6 +2521,26 @@ struct SongListView: View {
                 }
             }
         }
+        // 右下角：定位当前正在播放的歌曲（没有播放中的歌曲时不显示）
+        .overlay(alignment: .bottomTrailing) {
+            if let current = library.currentTrack {
+                Button {
+                    locateCurrentTrack(current.id)
+                } label: {
+                    Image(systemName: "dot.scope")
+                        .font(ui.fs(15, .semibold))
+                        .foregroundStyle(theme.primaryText)
+                        .frame(width: ui.s(38), height: ui.s(38))
+                        .glassEffect(.clear, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("定位到正在播放的歌曲")
+                .padding(.trailing, ui.s(26))
+                .padding(.bottom, ui.s(26))
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: library.currentTrack?.id)
     }
 }
 
