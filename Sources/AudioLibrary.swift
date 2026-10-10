@@ -6,6 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AudioToolbox
 import CoreGraphics
+import ImageIO
 import CryptoKit
 
 // MARK: - 封面降采样工具
@@ -1249,15 +1250,26 @@ final class AudioLibrary: ObservableObject {
     /// 再大只是徒增磁盘占用，所以统一压到这一档。
     private static nonisolated let artworkDiskMaxDimension: CGFloat = 1200
 
-    /// 把内嵌封面降采样后写盘（内容变化时覆盖写，并删除旧缩略图缓存）
+    /// 把内嵌封面降采样后写盘（内容变化时覆盖写，并删除旧缩略图缓存）。
+    /// 增量扫描复用的缓存曲目已不含内嵌封面数据，此时按落盘文件的像素尺寸判断，
+    /// 超过上限的老封面就地重写，保证该目录体积不会停在历史峰值。
     private static nonisolated func persistArtworkFiles(_ tracks: [AudioTrack]) {
         let dir = ArtworkCache.diskArtworkDirectory
         for track in tracks {
-            guard let data = track.artworkData, !data.isEmpty else { continue }
             let diskName = Self.artworkDiskName(for: track)
             let url = dir.appendingPathComponent(diskName)
-            // 原始内嵌封面可能远大于显示所需，统一降采样 + 重编码后再落盘
-            guard let image = NSImage(data: data),
+            let image: NSImage?
+            if let data = track.artworkData, !data.isEmpty {
+                image = NSImage(data: data)
+            } else if track.artworkDiskName != nil {
+                // 只读文件头拿像素尺寸，未超限就完全不动它（避免每次扫描全量解码）
+                guard let size = Self.pixelSize(of: url),
+                      max(size.width, size.height) > Self.artworkDiskMaxDimension else { continue }
+                image = NSImage(contentsOf: url)
+            } else {
+                continue
+            }
+            guard let image,
                   let encoded = Self.jpegData(downsampleImage(image, maxDimension: Self.artworkDiskMaxDimension))
             else { continue }
             // 编码结果一致就不重写：反复扫描保持幂等，不会每次都重建缩略图
@@ -1266,6 +1278,16 @@ final class AudioLibrary: ObservableObject {
             // 封面更新了，删除旧缩略图，下次访问重新生成
             ArtworkCache.removeThumbnailFiles(forDiskName: diskName)
         }
+    }
+
+    /// 只读图片文件头拿像素尺寸，不做整图解码
+    private static nonisolated func pixelSize(of url: URL) -> CGSize? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = props[kCGImagePropertyPixelHeight] as? CGFloat
+        else { return nil }
+        return CGSize(width: width, height: height)
     }
 
     /// 重编码为 JPEG。同一输入必须产出同样的字节，落盘的幂等判断依赖这一点。
