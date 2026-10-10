@@ -176,7 +176,8 @@ final class CustomFullScreen: ObservableObject {
         }
     }
 
-    private func exit() {
+    /// 退出全屏：界面里自绘的那组红绿灯（绿色）、Esc、⌃⌘F 都走这里
+    func exit() {
         guard isActive, let window else { return }
         isActive = false
         overscan = 0
@@ -229,6 +230,22 @@ final class CustomFullScreen: ObservableObject {
                 self.reassertFrame(window, to: screen)
             })
         }
+        // 全屏状态下窗口被关掉（点了界面里自绘的红灯）：把全屏状态收干净，
+        // 否则菜单栏会一直藏着、界面还留着 overscan 内缩
+        observers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            self?.resetState()
+        })
+    }
+
+    /// 窗口没了：只收状态，不再去动窗口
+    private func resetState() {
+        guard isActive else { return }
+        isActive = false
+        overscan = 0
+        setFrameConstraintBypass(false)
+        stopObserving()
+        NSApp.presentationOptions = savedPresentationOptions
+        log("窗口关闭，收掉自绘全屏状态")
     }
 
     private func stopObserving() {

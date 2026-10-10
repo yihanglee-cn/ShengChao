@@ -378,6 +378,15 @@ struct ContentView: View {
                     .position(x: geo.size.width - 46, y: 46 - windowTopInset)
                     .zIndex(20)
                 }
+
+                // 自绘全屏时系统那三个按钮被推到屏幕外了，这里补一组顶上（点绿色退出全屏）
+                if fullScreen.isActive {
+                    FullScreenTrafficLights()
+                        .padding(.leading, 13)
+                        .padding(.top, 13)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .zIndex(60)
+                }
             }
             .background(windowBackgroundView)
         }
@@ -3304,5 +3313,53 @@ struct NowPlayingBar: View {
 
     private var duration: Double {
         library.currentTrack?.duration ?? 0
+    }
+}
+
+// MARK: - 自绘全屏时补的一组「红黄绿灯」
+
+/// 自绘全屏时窗口比屏幕大一圈，系统那三个红黄绿灯被推到屏幕外面去了，
+/// 鼠标点不到。这里在左上角按系统的位置 / 大小 / 配色自己画一组：
+/// 绿=退出全屏、黄=最小化、红=关闭窗口；鼠标移上去才显示符号，和系统一致。
+private struct FullScreenTrafficLights: View {
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            light(fill: Color(red: 1.00, green: 0.37, blue: 0.34),
+                  symbol: "xmark", tip: "关闭窗口") {
+                CustomFullScreen.shared.exit()
+                NSApp.keyWindow?.performClose(nil)
+            }
+            light(fill: Color(red: 1.00, green: 0.74, blue: 0.18),
+                  symbol: "minus", tip: "最小化") {
+                CustomFullScreen.shared.exit()
+                NSApp.keyWindow?.performMiniaturize(nil)
+            }
+            light(fill: Color(red: 0.15, green: 0.79, blue: 0.25),
+                  symbol: "arrow.down.right.and.arrow.up.left", tip: "退出全屏（⌃⌘F / Esc）") {
+                CustomFullScreen.shared.exit()
+            }
+        }
+        .onHover { hovering = $0 }
+    }
+
+    private func light(fill: Color, symbol: String, tip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(fill)
+                    .frame(width: 12, height: 12)
+                if hovering {
+                    Image(systemName: symbol)
+                        .font(.system(size: 7, weight: .heavy))
+                        .foregroundColor(.black.opacity(0.55))
+                }
+            }
+            .frame(width: 14, height: 14)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(tip)
     }
 }
