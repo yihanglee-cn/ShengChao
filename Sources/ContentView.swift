@@ -23,21 +23,52 @@ func averageColor(of nsImage: NSImage) -> Color {
                  blue: Double(rgba[2])/255, opacity: 1)
 }
 
+// MARK: - 窗口度量
+
+/// 窗口化时顶部标题栏高度（全屏为 0）。
+/// 侧边栏用它给交通灯让位，大封面页用它定位右上角「词」按钮。
+enum WindowMetrics {
+    static var titlebarHeight: CGFloat {
+        guard let window = NSApp.windows.first(where: { $0.title == "声潮" }) else { return 0 }
+        let clr = window.contentLayoutRect
+        return max(0, window.frame.height - (clr.origin.y + clr.height))
+    }
+}
+
 // MARK: - 主题（白天/夜晚）
 
+/// macOS 27 Golden Gate 配色：
+/// 主窗口一律是**纯色底**（夜 #1C1C1E / 昼 #FFFFFF），不再跟封面染色；
+/// 文字、发丝线、材质都按昼夜出两套值。
 enum AppTheme {
     case night, day
 
     var isDay: Bool { self == .day }
 
-    var primaryText: Color { .white }
-    var secondaryText: Color { .white.opacity(0.60) }
-    var tertiaryText: Color { .white.opacity(0.45) }
+    /// 声潮强调色（Apple Music 粉红），只用于侧边栏图标
+    var accent: Color { Color(red: 250.0 / 255.0, green: 45.0 / 255.0, blue: 72.0 / 255.0) }
+
+    /// 主窗口纯色底
+    var windowBackground: Color {
+        isDay ? .white : Color(red: 28.0 / 255.0, green: 28.0 / 255.0, blue: 30.0 / 255.0)
+    }
+
+    var primaryText: Color { isDay ? Color(white: 0.11) : .white }
+    var secondaryText: Color { isDay ? Color.black.opacity(0.58) : Color.white.opacity(0.60) }
+    var tertiaryText: Color { isDay ? Color.black.opacity(0.38) : Color.white.opacity(0.45) }
+
+    /// 侧边栏材质（贴边面板底色）
+    var sidebarFill: Color { isDay ? Color.black.opacity(0.05) : Color.white.opacity(0.07) }
+    /// 工具栏材质
+    var toolbarFill: Color { isDay ? Color.white : Color.white.opacity(0.05) }
+    /// 发丝线：分隔线 / 边框
+    var hairline: Color { isDay ? Color.black.opacity(0.10) : Color.white.opacity(0.10) }
+
     var glass: Glass {
         isDay ? .clear : .regular
     }
-    var selectionFill: Color { Color.white.opacity(0.16) }
-    var fieldFill: Color { Color.white.opacity(0.10) }
+    var selectionFill: Color { isDay ? Color.black.opacity(0.08) : Color.white.opacity(0.16) }
+    var fieldFill: Color { isDay ? Color.black.opacity(0.05) : Color.white.opacity(0.10) }
 }
 
 // MARK: - 液态玻璃开关（开=蓝，关=灰）
@@ -257,28 +288,28 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                VStack(spacing: 0) {
-                    TopBar(library: library, showSettings: $showSettings, showUpload: $showUpload)
-                        .padding(.horizontal, ui.s(20))
-                        // 顶部/底部留白固定，不随界面缩放档位放大，避免大档位下顶部空隙过大
-                        .padding(.top, 8)
-                        .padding(.bottom, 8)
+                HStack(spacing: 0) {
+                    // 侧边栏贴边：从窗口最左侧一直通到窗口最底部
+                    Sidebar(selected: $selectedSidebar, library: library)
 
-                    HStack(spacing: ui.s(14)) {
-                        Sidebar(selected: $selectedSidebar, library: library)
+                    VStack(spacing: 0) {
+                        TopBar(library: library,
+                               selectedSection: selectedSidebar,
+                               showSettings: $showSettings,
+                               showUpload: $showUpload)
                         MainArea(library: library, selectedSection: selectedSidebar)
                     }
-                    .padding(.horizontal, ui.s(14))
-                    .padding(.bottom, ui.s(14))
-
-                    NowPlayingBar(library: library,
-                                  coverNamespace: coverNamespace,
-                                  showFullCover: $showFullCover,
-                                  coverVisible: $coverVisible)
-                        .opacity(showFullCover ? 0 : 1)  // 全屏封面激活时隐藏整个底部控制栏
-                        .animation(.easeInOut(duration: coverAnimationDuration * 0.6), value: showFullCover)
-                        .padding(.horizontal, ui.s(14))
-                        .padding(.bottom, ui.s(14))
+                    // 播放胶囊：悬浮在内容区底部居中，不占布局高度
+                    .overlay(alignment: .bottom) {
+                        NowPlayingBar(library: library,
+                                      coverNamespace: coverNamespace,
+                                      showFullCover: $showFullCover,
+                                      coverVisible: $coverVisible)
+                            .opacity(showFullCover ? 0 : 1)  // 全屏封面激活时隐藏整个底部控制栏
+                            .animation(.easeInOut(duration: coverAnimationDuration * 0.6), value: showFullCover)
+                            .padding(.horizontal, ui.s(14))
+                            .padding(.bottom, ui.s(12))
+                    }
                 }
 
                 // 大封面（常驻；背景淡入淡出，封面不透明只做位移动画）
@@ -318,12 +349,12 @@ struct ContentView: View {
                     .zIndex(20)
                 }
             }
-            .background(backgroundView)
+            .background(windowBackgroundView)
         }
         .environment(\.theme, nightMode ? .night : .day)
         .environment(\.uiScale, ui)
         // 最小窗口尺寸随档位放大：避免放大后窗口过小导致大封面/歌词被裁切
-        .frame(minWidth: ui.s(900), minHeight: ui.s(560))
+        .frame(minWidth: ui.s(1000), minHeight: ui.s(560))
         .background(HostWindowProbe { hostWindow = $0 })
         // 让界面真正铺满整块屏幕：带刘海的内建屏全屏时，系统会在顶端留一条
         // 刘海/菜单栏高度的安全区，若不忽略，界面整体下移、上方就空出一条黑边。
@@ -549,8 +580,15 @@ struct ContentView: View {
         VolumeBarFrameStore.shared.isDragging = false
     }
 
+    /// 主窗口背景：纯色（夜 #1C1C1E / 昼 #FFFFFF），不再跟封面染色
     @ViewBuilder
-    private var backgroundView: some View {
+    private var windowBackgroundView: some View {
+        theme.windowBackground.ignoresSafeArea()
+    }
+
+    /// 大封面播放页背景：保持原来的「糊掉封面 / 彩色光斑」不变
+    @ViewBuilder
+    private var coverBackgroundView: some View {
         if let artwork = library.currentTrack?.artwork {
             Image(nsImage: artwork)
                 .resizable()
@@ -626,7 +664,7 @@ struct ContentView: View {
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     } else {
-                        backgroundView
+                        coverBackgroundView
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -775,11 +813,7 @@ struct ContentView: View {
             private var theme: AppTheme { nightMode ? .night : .day }
 
     // 窗口化时顶部标题栏高度（全屏为 0），「词」按钮用它保持相对窗口最顶边的固定位置
-    private var windowTopInset: CGFloat {
-        guard let window = NSApp.windows.first(where: { $0.title == "声潮" }) else { return 0 }
-        let clr = window.contentLayoutRect
-        return max(0, window.frame.height - (clr.origin.y + clr.height))
-    }
+    private var windowTopInset: CGFloat { WindowMetrics.titlebarHeight }
 
     // 封面下方进度条（可拖动 seek）
     private var coverProgressBar: some View {
@@ -1102,48 +1136,21 @@ struct Background: View {
 struct TopBar: View {
     @Environment(\.uiScale) private var ui
     @ObservedObject var library: AudioLibrary
+    let selectedSection: String
     @Binding var showSettings: Bool
     @Binding var showUpload: Bool
     @AppStorage("nightMode") private var nightMode = true
-    @State private var showVersion = false
     private var theme: AppTheme { nightMode ? .night : .day }
 
-    private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0.0"
-    }
-
     var body: some View {
-        HStack {
-            Button {
-                showVersion.toggle()
-            } label: {
-                HStack(spacing: ui.s(8)) {
-                    Image(systemName: "waveform")
-                        .font(ui.fs(FB.title2, .semibold))
-                        .foregroundStyle(theme.primaryText)
-                    Text("声潮")
-                        .font(ui.fs(FB.title2, .semibold))
-                        .foregroundStyle(theme.primaryText)
-                    Text("SOUND WAVE")
-                        .font(ui.fs(FB.caption2, .semibold))
-                        .tracking(2)
-                        .foregroundStyle(theme.secondaryText)
-                        .padding(.leading, 4)
-                }
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $showVersion, arrowEdge: .top) {
-                HStack(spacing: ui.s(8)) {
-                    Text("声潮")
-                        .font(ui.fs(FB.headline, .semibold))
-                    Text("版本 \(appVersion)")
-                        .font(ui.fs(FB.subheadline))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(ui.s(14))
-            }
+        HStack(spacing: ui.s(12)) {
+            // 当前分区标题（品牌行已移入侧边栏顶部）
+            Text(selectedSection)
+                .font(ui.fs(FB.title3, .semibold))
+                .foregroundStyle(theme.primaryText)
+                .lineLimit(1)
 
-            // 扫描状态 / 提示文本（并入顶栏，让顶部更紧凑，不再单独占一行）
+            // 扫描状态 / 提示文本（并入工具栏，让顶部更紧凑，不再单独占一行）
             if !library.statusMessage.isEmpty || !library.warnings.isEmpty {
                 HStack(spacing: ui.s(6)) {
                     if library.isScanning {
@@ -1243,6 +1250,15 @@ struct TopBar: View {
                 .controlSize(.large)
                 .help("设置")
             }
+        }
+        // macOS 27：统一工具栏，用一条发丝线跟内容区分开
+        .padding(.horizontal, ui.s(16))
+        .frame(height: ui.s(52))
+        .background(theme.toolbarFill)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(height: 1)
         }
     }
 }
@@ -1556,14 +1572,51 @@ struct Sidebar: View {
     @State private var playlistsExpanded = false
     @State private var showNewPlaylistAlert = false
     @State private var newPlaylistName = ""
+    @State private var showVersion = false
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0.0"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            // 给窗口交通灯让位（全屏时标题栏高度为 0）
+            Color.clear
+                .frame(height: WindowMetrics.titlebarHeight)
+
+            // 品牌行：只保留中文「声潮」，点一下看版本
+            Button {
+                showVersion.toggle()
+            } label: {
+                HStack(spacing: ui.s(7)) {
+                    Image(systemName: "waveform")
+                        .font(ui.fs(FB.title2, .semibold))
+                        .foregroundStyle(theme.accent)
+                    Text("声潮")
+                        .font(ui.fs(FB.title2, .semibold))
+                        .foregroundStyle(theme.primaryText)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, ui.s(16))
+            .padding(.top, ui.s(2))
+            .padding(.bottom, ui.s(4))
+            .popover(isPresented: $showVersion, arrowEdge: .top) {
+                HStack(spacing: ui.s(8)) {
+                    Text("声潮")
+                        .font(ui.fs(FB.headline, .semibold))
+                    Text("版本 \(appVersion)")
+                        .font(ui.fs(FB.subheadline))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(ui.s(14))
+            }
+
             Text("音乐资料库")
                 .font(ui.fs(FB.caption, .semibold))
                 .foregroundStyle(theme.secondaryText)
                 .padding(.horizontal, ui.s(16))
-                .padding(.top, ui.s(16))
+                .padding(.top, ui.s(8))
                 .padding(.bottom, ui.s(8))
 
             ForEach(sidebarItems, id: \.name) { item in
@@ -1580,6 +1633,7 @@ struct Sidebar: View {
                         HStack(spacing: ui.s(10)) {
                             Image(systemName: item.icon)
                                 .frame(width: ui.s(20))
+                                .foregroundStyle(theme.accent)
                             Text(item.name)
                             Spacer()
                         }
@@ -1628,7 +1682,14 @@ struct Sidebar: View {
             .padding(ui.s(14))
         }
         .frame(width: ui.sidebarWidth)
-        .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(theme.sidebarFill)
+        .overlay(alignment: .trailing) {
+            // 与内容区之间的发丝线
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(width: 1)
+        }
         .alert("新建播放列表", isPresented: $showNewPlaylistAlert) {
             TextField("播放列表名称", text: $newPlaylistName)
             Button("创建") {
@@ -1648,6 +1709,7 @@ struct Sidebar: View {
             HStack(spacing: ui.s(10)) {
                 Image(systemName: item.icon)
                     .frame(width: ui.s(20))
+                    .foregroundStyle(theme.accent)
                 Text(item.name)
                 Spacer()
                 Image(systemName: playlistsExpanded ? "chevron.down" : "chevron.right")
@@ -1681,6 +1743,7 @@ struct Sidebar: View {
                     HStack(spacing: ui.s(8)) {
                         Image(systemName: "music.note.list")
                             .frame(width: ui.s(20))
+                            .foregroundStyle(theme.accent)
                         Text(playlist.name)
                             .lineLimit(1)
                         Spacer()
@@ -1708,6 +1771,7 @@ struct Sidebar: View {
                 HStack(spacing: ui.s(8)) {
                     Image(systemName: "plus")
                         .frame(width: ui.s(20))
+                        .foregroundStyle(theme.accent)
                     Text("新建播放列表")
                     Spacer()
                 }
@@ -1727,6 +1791,7 @@ struct Sidebar: View {
 // MARK: - 主内容区
 
 struct MainArea: View {
+    @Environment(\.uiScale) private var ui
     @ObservedObject var library: AudioLibrary
     let selectedSection: String
     @AppStorage("nightMode") private var nightMode = true
@@ -1763,7 +1828,9 @@ struct MainArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // 内容区直接铺在窗口纯色底上，不再套一层玻璃卡片；
+        // 底部留出播放胶囊的高度，避免最后一行被永久遮住
+        .contentMargins(.bottom, ui.s(84), for: .scrollContent)
     }
 }
 
@@ -1792,7 +1859,7 @@ struct EmptyLibraryView: View {
                 Image(systemName: "folder.badge.plus")
                 Text("扫描音乐")
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.primaryText)
             .padding(.horizontal, ui.s(18))
             .padding(.vertical, ui.s(9))
             .glassEffect(in: Capsule())
@@ -2710,7 +2777,7 @@ struct NowPlayingBar: View {
                 }
                 .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: ui.s(240), alignment: .leading)
 
             // 中栏：播放控制（固定中央，圆形液态玻璃）
             HStack(spacing: ui.s(18)) {
@@ -2792,8 +2859,8 @@ struct NowPlayingBar: View {
                                 library.seek(to: seekPosition)
                             }
                         })
-                        .frame(width: ui.s(140))
-                        .tint(Color(white: 0.75))
+                        .frame(width: ui.s(110))
+                        .tint(theme.primaryText.opacity(0.75))
                     }
                     .animation(.easeInOut(duration: 0.15), value: isDragging)
                     Text(library.formatTime(library.currentTrack?.duration ?? 0))
@@ -2817,8 +2884,8 @@ struct NowPlayingBar: View {
                         Slider(value: $library.volume, in: 0...1, onEditingChanged: { editing in
                             isVolumeDragging = editing
                         })
-                        .frame(width: ui.s(80))
-                        .tint(Color(white: 0.75))
+                        .frame(width: ui.s(64))
+                        .tint(theme.primaryText.opacity(0.75))
                     }
                     .animation(.easeInOut(duration: 0.15), value: isVolumeDragging)
                 }
@@ -2830,13 +2897,14 @@ struct NowPlayingBar: View {
                 }
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Capsule())
         .onTapGesture {
             openFullCover()
         }
-        .padding(.horizontal, ui.s(18))
-        .padding(.vertical, ui.s(12))
-        .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, ui.s(16))
+        .padding(.vertical, ui.s(10))
+        .frame(maxWidth: ui.s(880))
+        .glassEffect(theme.glass, in: Capsule())
     }
 
     private var duration: Double {

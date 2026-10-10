@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-sidebar="edge" data-accent="rose">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>声潮 · macOS 27 Golden Gate / Apple Music 样式 Demo</title>
+<style>
+/* ============================================================
+   声潮 × macOS 27 “Golden Gate” Liquid Glass 样式 Demo
+   ------------------------------------------------------------
+   复刻要点（对照 Apple 官方描述）：
+   1. 侧边栏贴边（edge-to-edge），去掉悬浮阴影         —— 可用 HUD 切换对比 Tahoe 悬浮版
+   2. 侧边栏图标恢复彩色（跟随 App 强调色）
+   3. 工具栏统一 + 明确分隔线
+   4. 窗口圆角统一且收小（14px，Tahoe 版为 22px）
+   5. Liquid Glass：整体更不透明、深色描边 + 更亮高光
+      （窗口底色为纯色：深色 #1c1c1e / 浅色 #ffffff，不做封面染色）
+   6. Liquid Glass 滑块：超清透 ↔ 全着色
+   7. 播放器是**底部居中悬浮玻璃胶囊**（浮在内容之上，不占布局高度）
+   8. 侧边栏选中项是**中性浅灰圆角块**（不是强调色块）
+   ============================================================ */
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  /* Liquid Glass 强度：0 = 超清透，1 = 全着色 */
+  --lg:.42;
+  --accent:#fa2d48;
+  --accent-soft:rgba(250,45,72,.18);
+
+  /* 窗口 / 圆角 */
+  --radius-win:14px;
+  --radius-card:12px;
+  --radius-ui:9px;
+
+  /* 玻璃模糊：越清透越模糊 */
+  --blur:calc(30px + 26px * (1 - var(--lg)));
+  --sat:180%;
+
+  /* 文字 */
+  --text:#f2f2f5;
+  --text-2:rgba(242,242,245,.62);
+  --text-3:rgba(242,242,245,.38);
+
+  /* 玻璃面：Golden Gate 整体更不透明 */
+  --glass:rgba(255,255,255,calc(.055 + .135 * var(--lg)));
+  --glass-strong:rgba(255,255,255,calc(.085 + .145 * var(--lg)));
+  --hairline:rgba(255,255,255,calc(.09 + .07 * var(--lg)));
+  --hairline-soft:rgba(255,255,255,.07);
+
+  /* 玻璃“液态”质感：深色描边 + 亮高光 */
+  --glass-edge:inset 0 0 0 .5px rgba(255,255,255,.14),
+               inset 0 0 0 1px rgba(0,0,0,.16),
+               inset 0 .5px 0 rgba(255,255,255,.32),
+               inset 0 -.5px 0 rgba(0,0,0,.22);
+
+  --shadow-win:0 40px 90px rgba(0,0,0,.62),0 12px 28px rgba(0,0,0,.42),0 1px 0 rgba(255,255,255,.10);
+  --shadow-pop:0 18px 42px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3);
+
+  --sidebar-w:236px;
+  --toolbar-h:54px;
+  /* 侧边栏选中项：中性浅灰（对齐截图，不用强调色） */
+  --sel-fill:rgba(255,255,255,.15);
+
+  --ambient:rgba(88,86,214,.55),rgba(255,90,120,.45),rgba(0,150,180,.4);
+
+  /* 窗口底色：纯色，不做任何渐变 / 封面染色 */
+  --window-bg:#1c1c1e;
+  --ambient-opacity:0;
+  --sidebar-bg:rgba(255,255,255,calc(.055 + .135 * var(--lg)));
+}
+
+/* ---------- 浅色（白天）：纯白底，不做封面染色 ---------- */
+[data-theme="light"]{
+  --text:#1d1d1f;
+  --text-2:rgba(0,0,0,.58);
+  --text-3:rgba(0,0,0,.36);
+  --glass:rgba(255,255,255,calc(.62 + .22 * var(--lg)));
+  --glass-strong:rgba(255,255,255,calc(.80 + .16 * var(--lg)));
+  --hairline:rgba(0,0,0,calc(.07 + .07 * var(--lg)));
+  --hairline-soft:rgba(0,0,0,.06);
+  --glass-edge:inset 0 0 0 .5px rgba(255,255,255,.75),
+               inset 0 0 0 1px rgba(0,0,0,.05),
+               inset 0 .5px 0 rgba(255,255,255,.95),
+               inset 0 -.5px 0 rgba(0,0,0,.05);
+  --shadow-win:0 40px 90px rgba(0,0,0,.35),0 12px 28px rgba(0,0,0,.18),0 1px 0 rgba(255,255,255,.6);
+  --shadow-pop:0 18px 42px rgba(0,0,0,.22),0 2px 8px rgba(0,0,0,.12);
+
+  /* 纯白窗口 + 关闭封面染色；仅侧边栏保留 macOS 浅灰材质以便区分结构 */
+  --window-bg:#ffffff;
+  --sidebar-bg:rgba(120,120,128,calc(.05 + .04 * var(--lg)));
+  --sel-fill:rgba(120,120,128,.16);
+}
+
+/* ---------- 强调色 ---------- */
+[data-accent="rose"]{ --accent:#fa2d48; --accent-soft:rgba(250,45,72,.18); }
+[data-accent="blue"]{ --accent:#0a84ff; --accent-soft:rgba(10,132,255,.20); }
+
+html,body{height:100%}
+body{
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;
+  color:var(--text);
+  background:#0b0d12;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============================================================
+   桌面壁纸（用于检验玻璃透光）
+   ============================================================ */
+.wallpaper{
+  position:fixed;inset:0;z-index:0;
+  background:#0b0b0d;
+}
+[data-theme="light"] .wallpaper{
+  background:#e8e8ea;
+}
+
+.stage{position:fixed;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;padding:34px}
+
+/* ============================================================
+   窗口
+   ============================================================ */
+.window{
+  position:relative;
+  width:min(1280px,100%);
+  height:min(820px,100%);
+  display:flex;
+  flex-direction:column;
+  border-radius:var(--radius-win);
+  overflow:hidden;
+  box-shadow:var(--shadow-win);
+  background:var(--window-bg);
+  backdrop-filter:blur(60px) saturate(150%);
+  -webkit-backdrop-filter:blur(60px) saturate(150%);
+  transition:border-radius .28s cubic-bezier(.32,.72,0,1);
+}
+
+/* 窗口描边：深色边缘 + 顶部高光（Golden Gate 的层次感） */
+.window::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:50;
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.16),
+             inset 0 1px 0 rgba(255,255,255,.22),
+             inset 0 0 0 1px rgba(0,0,0,.28);
+}
+[data-theme="light"] .window::after{
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.9),
+             inset 0 1px 0 rgba(255,255,255,1),
+             inset 0 0 0 1px rgba(0,0,0,.10);
+}
+
+/* ============================================================
+   主体两栏
+   ============================================================ */
+.body{position:relative;z-index:2;display:grid;grid-template-columns:var(--sidebar-w) 1fr;flex:1 1 auto;min-height:0}
+
+/* ---------- 侧边栏 ---------- */
+.sidebar{
+  position:relative;display:flex;flex-direction:column;min-height:0;
+  background:var(--sidebar-bg);
+  backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  border-right:1px solid var(--hairline);
+  transition:margin .28s cubic-bezier(.32,.72,0,1),border-radius .28s cubic-bezier(.32,.72,0,1),
+             box-shadow .28s ease,border-color .28s ease;
+}
+.sidebar::after{
+  content:"";position:absolute;inset:0;pointer-events:none;box-shadow:var(--glass-edge);
+}
+
+/* Tahoe 版：内缩悬浮侧边栏（用于对比） */
+[data-sidebar="float"]{ --radius-win:22px; }
+[data-sidebar="float"] .sidebar{
+  margin:10px 0 10px 10px;
+  border-radius:12px;
+  border-right:1px solid var(--hairline-soft);
+  box-shadow:0 12px 30px rgba(0,0,0,.34),0 1px 0 rgba(255,255,255,.06);
+}
+[data-sidebar="float"] .traffic{opacity:.9}
+[data-sidebar="float"] .sidebar{padding-top:2px}
+[data-sidebar="float"] .body{padding-right:10px}
+
+/* 交通灯 + 品牌 */
+.traffic{display:flex;align-items:center;gap:8px;padding:14px 0 10px 16px;flex:0 0 auto}
+.light{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.30)}
+.light.r{background:#ff5f57}.light.y{background:#febc2e}.light.g{background:#28c840}
+.brand{display:flex;align-items:center;gap:7px;margin-left:12px;color:var(--text)}
+.brand svg{width:17px;height:17px;color:var(--accent)}
+.brand b{font-size:13px;font-weight:600;letter-spacing:.2px}
+.brand span{font-size:9px;font-weight:600;letter-spacing:.16em;color:var(--text-3)}
+
+/* 侧边栏分组 */
+.nav{flex:1 1 auto;overflow-y:auto;padding:6px 10px 12px}
+.nav::-webkit-scrollbar{width:0}
+.group-title{
+  font-size:11px;font-weight:600;color:var(--text-3);
+  padding:12px 8px 6px;letter-spacing:.02em;
+}
+.row{
+  position:relative;display:flex;align-items:center;gap:9px;
+  height:28px;padding:0 8px;border-radius:var(--radius-ui);
+  color:var(--text-2);font-size:13px;cursor:default;user-select:none;
+  transition:background .12s ease,color .12s ease;
+}
+.row svg{width:15px;height:15px;flex:0 0 auto;color:var(--accent);opacity:.92}
+.row .chev{margin-left:auto;width:11px;height:11px;color:var(--text-3)}
+.row:hover{background:rgba(255,255,255,.07)}
+[data-theme="light"] .row:hover{background:rgba(0,0,0,.045)}
+.row.sel{background:var(--sel-fill);color:var(--text);font-weight:500}
+.row.sel svg{opacity:1}
+.row.sub{padding-left:30px;font-size:12.5px}
+.row.sub svg{width:13px;height:13px;opacity:.65}
+
+/* 存储设备卡片 */
+.device{
+  margin:10px 12px 12px;padding:9px 10px;border-radius:var(--radius-ui);
+  display:flex;align-items:center;gap:9px;
+  background:var(--glass-strong);
+  box-shadow:var(--glass-edge);
+  flex:0 0 auto;
+}
+.device svg{width:17px;height:17px;color:var(--text-2)}
+.device .t{font-size:11.5px;line-height:1.35}
+.device .t b{display:block;font-weight:500;font-size:11.5px}
+.device .t span{color:var(--text-3);font-size:10.5px}
+
+/* ---------- 内容区 ---------- */
+.content{position:relative;display:grid;grid-template-rows:var(--toolbar-h) 1fr;min-width:0;min-height:0}
+
+/* 工具栏：统一布局 + 明确分隔线 */
+.toolbar{
+  position:relative;display:flex;align-items:center;gap:12px;
+  padding:0 16px;
+  background:var(--glass);
+  backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  border-bottom:1px solid var(--hairline);
+}
+.toolbar::after{content:"";position:absolute;inset:0;pointer-events:none;box-shadow:var(--glass-edge)}
+.navbtns{position:relative;z-index:1;display:flex;gap:2px}
+.iconbtn{
+  width:28px;height:28px;display:grid;place-items:center;border-radius:7px;
+  color:var(--text-2);cursor:default;border:0;background:transparent;
+  transition:background .12s ease,color .12s ease;
+}
+.iconbtn svg{width:15px;height:15px}
+.iconbtn:hover{background:rgba(255,255,255,.09);color:var(--text)}
+[data-theme="light"] .iconbtn:hover{background:rgba(0,0,0,.055)}
+.toolbar h1{position:relative;z-index:1;font-size:15px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.toolbar .count{position:relative;z-index:1;font-size:11.5px;color:var(--text-3);white-space:nowrap}
+.spacer{flex:1 1 auto}
+
+/* 玻璃胶囊按钮 */
+.pill{
+  position:relative;z-index:1;
+  display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;
+  border-radius:999px;border:0;cursor:default;
+  background:var(--glass-strong);color:var(--text);
+  box-shadow:var(--glass-edge);
+  backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  font-size:12.5px;font-weight:500;
+  transition:background .14s ease,transform .14s ease;
+}
+.pill svg{width:14px;height:14px}
+.pill:hover{transform:translateY(-.5px)}
+.pill:active{transform:translateY(.5px)}
+.pill.round{width:28px;padding:0;justify-content:center}
+
+/* 分段（日/夜） */
+.seg{position:relative;z-index:1;display:flex;gap:1px;padding:2px;border-radius:999px;
+  background:var(--glass-strong);box-shadow:var(--glass-edge)}
+.seg button{
+  width:28px;height:24px;display:grid;place-items:center;border:0;background:transparent;
+  border-radius:999px;color:var(--text-3);cursor:default;transition:background .14s,color .14s;
+}
+.seg button svg{width:13px;height:13px}
+.seg button.on{background:rgba(255,255,255,.16);color:var(--text)}
+[data-theme="light"] .seg button.on{background:rgba(0,0,0,.08)}
+
+/* 搜索框 */
+.search{
+  position:relative;z-index:1;display:flex;align-items:center;gap:6px;
+  height:28px;width:190px;padding:0 10px;border-radius:999px;
+  background:var(--glass-strong);box-shadow:var(--glass-edge);
+  color:var(--text-3);font-size:12.5px;
+}
+.search svg{width:13px;height:13px}
+
+/* 内容滚动区 */
+.scroll{position:relative;overflow-y:auto;padding:22px 22px 110px}
+.scroll::-webkit-scrollbar{width:10px}
+.scroll::-webkit-scrollbar-thumb{
+  background:rgba(255,255,255,.16);border-radius:999px;border:3px solid transparent;background-clip:content-box;
+}
+.scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.26);background-clip:content-box}
+[data-theme="light"] .scroll::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);background-clip:content-box}
+
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+.page-head h2{font-size:26px;font-weight:700;letter-spacing:-.01em}
+.page-head p{font-size:12px;color:var(--text-3);margin-top:3px}
+
+/* 专辑网格 */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:22px 18px}
+.card{cursor:default}
+.cover{
+  position:relative;aspect-ratio:1/1;border-radius:var(--radius-card);overflow:hidden;
+  box-shadow:0 10px 24px rgba(0,0,0,.38),0 1px 0 rgba(255,255,255,.10);
+  transition:transform .22s cubic-bezier(.32,.72,0,1),box-shadow .22s ease;
+}
+.card:hover .cover{transform:translateY(-3px) scale(1.012);box-shadow:0 18px 38px rgba(0,0,0,.48)}
+.cover .art{position:absolute;inset:0;display:grid;place-items:center}
+.cover .art svg{width:34%;height:34%;color:rgba(255,255,255,.55)}
+/* 玻璃反光层（Liquid Glass 高光） */
+.cover::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(160deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,0) 42%);
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.22),inset 0 0 0 1px rgba(0,0,0,.14);
+}
+.play{
+  position:absolute;right:8px;bottom:8px;z-index:2;
+  width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(0,0,0,.42);backdrop-filter:blur(12px);
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.30),0 4px 14px rgba(0,0,0,.35);
+  color:#fff;opacity:0;transform:translateY(4px);transition:.18s ease;
+}
+.card:hover .play{opacity:1;transform:none}
+.play svg{width:14px;height:14px}
+
+/* 正在播放：均衡器 + 高亮 */
+.eq{position:absolute;left:9px;bottom:9px;z-index:2;display:flex;align-items:flex-end;gap:2.5px;height:15px}
+.eq i{
+  width:3.5px;height:15px;border-radius:2px;background:#fff;
+  box-shadow:0 0 9px rgba(255,255,255,.65);transform-origin:bottom;
+  animation:eq .85s ease-in-out infinite;
+}
+.eq i:nth-child(1){animation-delay:0s}
+.eq i:nth-child(2){animation-delay:.15s}
+.eq i:nth-child(3){animation-delay:.32s}
+@keyframes eq{0%,100%{transform:scaleY(.45)}50%{transform:scaleY(1)}}
+
+.meta{margin-top:10px}
+.meta b{display:block;font-size:13px;font-weight:600;letter-spacing:.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta span{display:block;font-size:11.5px;color:var(--text-3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card.playing .meta b{color:var(--accent)}
+
+/* ============================================================
+   底部悬浮播放胶囊（Apple Music，macOS 26 引入 / 27 沿用）
+   —— 浮在内容之上、不占布局高度，两端全圆
+   ============================================================ */
+.capsule{
+  position:absolute;z-index:6;left:calc(50% + var(--sidebar-w) / 2);bottom:16px;transform:translateX(-50%);
+  display:flex;align-items:center;gap:9px;
+  width:min(860px,calc(100% - 48px));height:58px;padding:0 14px 0 12px;
+  border-radius:999px;
+  background:var(--glass-strong);
+  backdrop-filter:blur(calc(var(--blur) * .72 + 8px)) saturate(var(--sat));
+  -webkit-backdrop-filter:blur(calc(var(--blur) * .72 + 8px)) saturate(var(--sat));
+  box-shadow:var(--glass-edge),0 20px 46px rgba(0,0,0,.44),0 3px 10px rgba(0,0,0,.28);
+  transition:background .2s ease,box-shadow .2s ease;
+}
+[data-theme="light"] .capsule{
+  box-shadow:var(--glass-edge),0 20px 46px rgba(0,0,0,.18),0 3px 10px rgba(0,0,0,.09);
+}
+.capsule .sep{width:1px;height:22px;background:var(--hairline);flex:0 0 auto}
+
+/* 左：封面 + 信息 */
+.track{display:flex;align-items:center;gap:9px;min-width:0;flex:0 1 auto;max-width:270px}
+.track .art{
+  width:34px;height:34px;border-radius:6px;flex:0 0 auto;position:relative;overflow:hidden;
+  box-shadow:0 4px 14px rgba(0,0,0,.40),inset 0 0 0 .5px rgba(255,255,255,.22);
+}
+.track .art::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.30),transparent 45%)}
+.track .info{min-width:0}
+.track .info b{display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track .info span{display:block;font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.track .iconbtn{flex:0 0 auto}
+.track .iconbtn.liked{color:var(--accent)}
+
+/* 中：进度 + 传输控制 */
+.center{display:flex;flex-direction:column;gap:6px;align-items:center;min-width:0;width:100%}
+.progress{display:flex;align-items:center;gap:9px;width:100%}
+.time{font-size:10.5px;color:var(--text-3);font-variant-numeric:tabular-nums;flex:0 0 auto;width:32px}
+.time.r{text-align:right}
+.bar{
+  position:relative;flex:1 1 auto;height:4px;border-radius:999px;
+  background:rgba(255,255,255,.16);cursor:default;
+}
+[data-theme="light"] .bar{background:rgba(0,0,0,.12)}
+.bar .fill{position:absolute;inset:0 auto 0 0;width:32%;border-radius:999px;background:var(--text);opacity:.85}
+.bar .knob{
+  position:absolute;top:50%;left:32%;width:10px;height:10px;border-radius:50%;
+  transform:translate(-50%,-50%) scale(0);background:#fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.45);transition:transform .14s ease;
+}
+.progress:hover .knob{transform:translate(-50%,-50%) scale(1)}
+.transport{display:flex;align-items:center;gap:2px;flex:0 0 auto}
+.transport .iconbtn{width:28px;height:26px}
+.transport .iconbtn svg{width:15px;height:15px}
+.transport .iconbtn.on{color:var(--accent)}
+.playbig{
+  width:38px;height:38px;border-radius:50%;display:grid;place-items:center;border:0;cursor:default;
+  background:var(--glass);color:var(--text);box-shadow:var(--glass-edge);
+  backdrop-filter:blur(var(--blur)) saturate(var(--sat));
+  margin:0 6px;transition:transform .14s ease,background .14s ease;
+}
+.playbig svg{width:18px;height:18px}
+.playbig:hover{background:rgba(255,255,255,.16);transform:scale(1.04)}
+.playbig:active{transform:scale(.96)}
+
+/* 右：音量 + 附加 */
+.right{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex:1 1 auto;min-width:0}
+/* 胶囊里的进度条：跟现有底部栏一样是「当前时间 + 可拖进度 + 总时长」 */
+.capsule .bar.seek{flex:1 1 auto;min-width:70px;max-width:190px}
+.capsule .time{width:auto;flex:0 0 auto}
+/* 播放模式关闭态（对应 playbackMode == .off，项目里用 tertiary 色） */
+.iconbtn.off{color:var(--text-3)}
+.vol{display:flex;align-items:center;gap:7px;width:78px}
+.vol svg{width:15px;height:15px;color:var(--text-2);flex:0 0 auto}
+.vol .bar{height:3px}
+.vol .bar .fill{width:62%;opacity:.7}
+.vol .bar .knob{left:62%;width:9px;height:9px}
+.vol:hover .knob{transform:translate(-50%,-50%) scale(1)}
+
+/* ============================================================
+   HUD（demo 控制台，不属于 App 本体）
+   ============================================================ */
+.hud{
+  position:fixed;right:22px;top:22px;z-index:100;width:266px;
+  padding:14px;border-radius:16px;
+  background:rgba(22,23,29,.72);backdrop-filter:blur(34px) saturate(170%);
+  -webkit-backdrop-filter:blur(34px) saturate(170%);
+  box-shadow:0 24px 60px rgba(0,0,0,.55),inset 0 0 0 .5px rgba(255,255,255,.14),inset 0 1px 0 rgba(255,255,255,.16);
+  color:#f2f2f5;font-size:12px;
+  max-height:calc(100vh - 44px);overflow-y:auto;
+}
+.hud h3{font-size:12px;font-weight:600;letter-spacing:.04em;color:rgba(242,242,245,.55);margin-bottom:12px;text-transform:uppercase}
+.hud .f{margin-bottom:13px}
+.hud .f > label{display:flex;justify-content:space-between;color:rgba(242,242,245,.72);margin-bottom:6px}
+.hud .f > label b{color:#fff;font-weight:500}
+.hud input[type=range]{
+  -webkit-appearance:none;width:100%;height:4px;border-radius:999px;background:rgba(255,255,255,.18);outline:none;
+}
+.hud input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:pointer;
+}
+.hud .opts{display:flex;gap:6px}
+.hud .opts button{
+  flex:1;height:26px;border-radius:8px;border:0;cursor:pointer;font-size:11.5px;font-weight:500;
+  background:rgba(255,255,255,.10);color:rgba(242,242,245,.78);transition:.14s;
+}
+.hud .opts button.on{background:#fff;color:#111}
+.hud .opts button:hover{background:rgba(255,255,255,.20)}
+.hud .opts button.on:hover{background:#fff}
+.hud hr{border:0;border-top:1px solid rgba(255,255,255,.10);margin:12px 0}
+.hud ul{list-style:none;color:rgba(242,242,245,.60);font-size:11px;line-height:1.6}
+.hud ul li{padding-left:12px;position:relative}
+.hud ul li::before{content:"";position:absolute;left:2px;top:7px;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.35)}
+.hud .note{color:rgba(242,242,245,.42);font-size:10.5px;line-height:1.55;margin-top:8px}
+
+@media (max-width:1100px){ .hud{display:none} }
+</style>
+</head>
+<body>
+
+<!-- ========== 图标精灵 ========== -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="i-wave"><path d="M2 12h2l2-7 3 14 3-11 2 6h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-clock"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></g>
+    <g id="i-artist"><circle cx="12" cy="8.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4.8 19.5c.9-3.6 3.8-5.6 7.2-5.6s6.3 2 7.2 5.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></g>
+    <g id="i-album"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/></g>
+    <g id="i-song"><path d="M9 18V6.4l9-1.6V16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.6" cy="18" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="15.6" cy="16" r="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/></g>
+    <g id="i-playlist"><path d="M4 7h11M4 12h11M4 17h7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M18 11v7.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="16.6" cy="18.6" r="1.9" fill="none" stroke="currentColor" stroke-width="1.6"/></g>
+    <g id="i-plus"><path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-chev"><path d="M9.5 6.5 15 12l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-disk"><rect x="3.5" y="5" width="17" height="14" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M17.5 15.6h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></g>
+    <g id="i-back"><path d="M14.5 6 9 12l5.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-fwd"><path d="M9.5 6 15 12l-5.5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-search"><circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.6 15.6 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-upload"><path d="M12 15V4.5M8.2 8.3 12 4.5l3.8 3.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 15v3.2A1.3 1.3 0 0 0 5.8 19.5h12.4a1.3 1.3 0 0 0 1.3-1.3V15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></g>
+    <g id="i-scan"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M12 9.2v5.6M12 9.2l4-1v5.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-sun"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></g>
+    <g id="i-moon"><path d="M20 14.4A8.4 8.4 0 0 1 9.6 4 8.6 8.6 0 1 0 20 14.4Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></g>
+    <g id="i-gear"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.6v2.2M12 18.2v2.2M4.8 7.8l1.9 1.1M17.3 15.1l1.9 1.1M4.8 16.2l1.9-1.1M17.3 8.9l1.9-1.1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></g>
+    <g id="i-play"><path d="M8 5.6 18.4 12 8 18.4Z" fill="currentColor"/></g>
+    <g id="i-pause"><rect x="7.4" y="5.6" width="3.1" height="12.8" rx="1.2" fill="currentColor"/><rect x="13.5" y="5.6" width="3.1" height="12.8" rx="1.2" fill="currentColor"/></g>
+    <g id="i-prev"><path d="M18 6v12L9 12Z" fill="currentColor"/><rect x="6" y="6" width="2.2" height="12" rx="1.1" fill="currentColor"/></g>
+    <g id="i-next"><path d="M6 6v12l9-6Z" fill="currentColor"/><rect x="15.8" y="6" width="2.2" height="12" rx="1.1" fill="currentColor"/></g>
+    <g id="i-shuffle"><path d="M4 7h3.4l3 3M4 17h3.4l8.2-8.2H20M20 20v-4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 5.8 20 8.8l-3 3M13.6 13.6 17 17h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-repeat"><path d="M6.5 8.5h10A3.5 3.5 0 0 1 20 12v0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M9 5.5 6 8.5l3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 15.5h-10A3.5 3.5 0 0 1 4 12v0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M15 18.5l3-3-3-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-vol"><path d="M4 9.6h3l4-3.4v11.6l-4-3.4H4Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14.6 9a4.4 4.4 0 0 1 0 6M17.4 6.6a8 8 0 0 1 0 10.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></g>
+    <g id="i-heart"><path d="M12 19.6s-7-4.3-7-9.1A4 4 0 0 1 12 8.1a4 4 0 0 1 7 2.4c0 4.8-7 9.1-7 9.1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></g>
+    <g id="i-lyrics"><path d="M5 6h14M5 11h9M5 16h11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-queue"><path d="M4 7h12M4 12h12M4 17h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18.6 14v5.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+    <g id="i-note"><path d="M9.6 19V7.6l10-2V17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.6" cy="19" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="16.6" cy="17" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/></g>
+  </defs>
+</svg>
+
+<div class="wallpaper"></div>
+
+<div class="stage">
+  <div class="window" id="win">
+
+    <div class="body">
+      <!-- ================= 侧边栏（贴边） ================= -->
+      <aside class="sidebar">
+        <div class="traffic">
+          <span class="light r"></span><span class="light y"></span><span class="light g"></span>
+          <div class="brand">
+            <svg viewBox="0 0 24 24"><use href="#i-wave"/></svg>
+            <b>声潮</b><span>SOUND WAVE</span>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <div class="group-title">音乐资料库</div>
+          <div class="row"><svg viewBox="0 0 24 24"><use href="#i-clock"/></svg>最近播放</div>
+          <div class="row"><svg viewBox="0 0 24 24"><use href="#i-song"/></svg>歌曲</div>
+          <div class="row sel"><svg viewBox="0 0 24 24"><use href="#i-album"/></svg>专辑</div>
+          <div class="row"><svg viewBox="0 0 24 24"><use href="#i-artist"/></svg>艺术家</div>
+          <div class="row"><svg viewBox="0 0 24 24"><use href="#i-heart"/></svg>收藏</div>
+          <div class="row"><svg viewBox="0 0 24 24"><use href="#i-playlist"/></svg>播放列表
+            <svg class="chev" viewBox="0 0 24 24"><use href="#i-chev"/></svg>
+          </div>
+          <div class="row sub"><svg viewBox="0 0 24 24"><use href="#i-note"/></svg>深夜驾驶</div>
+          <div class="row sub"><svg viewBox="0 0 24 24"><use href="#i-note"/></svg>钢琴小品</div>
+          <div class="row sub"><svg viewBox="0 0 24 24"><use href="#i-note"/></svg>华语精选</div>
+          <div class="row sub"><svg viewBox="0 0 24 24"><use href="#i-plus"/></svg>新建播放列表</div>
+        </nav>
+
+        <div class="device">
+          <svg viewBox="0 0 24 24"><use href="#i-disk"/></svg>
+          <div class="t"><b>Macintosh HD</b><span>1.2 TB · 无损音乐库</span></div>
+        </div>
+      </aside>
+
+      <!-- ================= 内容区 ================= -->
+      <div class="content">
+        <header class="toolbar">
+          <div class="navbtns">
+            <button class="iconbtn" title="后退"><svg viewBox="0 0 24 24"><use href="#i-back"/></svg></button>
+            <button class="iconbtn" title="前进"><svg viewBox="0 0 24 24"><use href="#i-fwd"/></svg></button>
+          </div>
+          <h1>专辑</h1>
+          <span class="count">12 张专辑 · 148 首歌曲</span>
+          <div class="spacer"></div>
+
+          <div class="search"><svg viewBox="0 0 24 24"><use href="#i-search"/></svg>搜索资料库</div>
+
+          <button class="pill"><svg viewBox="0 0 24 24"><use href="#i-upload"/></svg>上传</button>
+          <button class="pill"><svg viewBox="0 0 24 24"><use href="#i-scan"/></svg>扫描音乐</button>
+
+          <div class="seg">
+            <button id="segLight" title="白天"><svg viewBox="0 0 24 24"><use href="#i-sun"/></svg></button>
+            <button id="segDark" class="on" title="夜晚"><svg viewBox="0 0 24 24"><use href="#i-moon"/></svg></button>
+          </div>
+
+          <button class="pill round" title="设置"><svg viewBox="0 0 24 24"><use href="#i-gear"/></svg></button>
+        </header>
+
+        <main class="scroll">
+          <div class="page-head">
+            <div>
+              <h2>专辑</h2>
+              <p>按添加时间排序</p>
+            </div>
+          </div>
+
+          <div class="grid" id="grid"></div>
+        </main>
+      </div>
+    </div>
+
+    <!-- ========== 底部悬浮播放胶囊（控件与现有 NowPlayingBar 一一对应） ==========
+         左：封面 + 歌曲信息            （对应 CoverArtwork + title/artist）
+         中：播放模式 / 上一首 / 播放暂停 / 下一首 / 收藏
+         右：当前时间 + 进度 + 总时长 + 音量
+         ==================================================================== -->
+    <div class="capsule">
+      <div class="track">
+        <div class="art" style="background:linear-gradient(135deg,#2b2f8f,#6d3fd1)"></div>
+        <div class="info">
+          <b>夜航</b>
+          <span>陈默 — 夜航 · 96 kHz · 24 bit</span>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="transport">
+        <button class="iconbtn off" title="播放模式（循环 / 单曲 / 随机）">
+          <svg viewBox="0 0 24 24"><use href="#i-repeat"/></svg>
+        </button>
+        <button class="iconbtn" title="上一首"><svg viewBox="0 0 24 24"><use href="#i-prev"/></svg></button>
+        <button class="playbig" id="playBtn" title="播放/暂停">
+          <svg viewBox="0 0 24 24" id="playIcon"><use href="#i-play"/></svg>
+        </button>
+        <button class="iconbtn" title="下一首"><svg viewBox="0 0 24 24"><use href="#i-next"/></svg></button>
+        <button class="iconbtn liked" title="收藏"><svg viewBox="0 0 24 24"><use href="#i-heart"/></svg></button>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="right">
+        <span class="time" id="curTime">1:12</span>
+        <div class="bar seek"><div class="fill"></div><div class="knob"></div></div>
+        <span class="time r" id="durTime">4:32</span>
+        <div class="vol">
+          <svg viewBox="0 0 24 24"><use href="#i-vol"/></svg>
+          <div class="bar"><div class="fill"></div><div class="knob"></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ================= HUD ================= -->
+<div class="hud">
+  <h3>Golden Gate 控制台</h3>
+
+  <div class="f">
+    <label>Liquid Glass <b id="lgVal">42%</b></label>
+    <input type="range" id="lg" min="0" max="100" value="42">
+    <div style="display:flex;justify-content:space-between;color:rgba(242,242,245,.42);font-size:10px;margin-top:5px">
+      <span>超清透</span><span>全着色</span>
+    </div>
+  </div>
+
+  <div class="f">
+    <label>外观</label>
+    <div class="opts" id="themeOpts">
+      <button data-v="dark" class="on">深色</button>
+      <button data-v="light">浅色</button>
+    </div>
+  </div>
+
+  <div class="f">
+    <label>侧边栏</label>
+    <div class="opts" id="sidebarOpts">
+      <button data-v="edge" class="on">贴边（27）</button>
+      <button data-v="float">悬浮（26）</button>
+    </div>
+  </div>
+
+  <div class="f">
+    <label>强调色</label>
+    <div class="opts" id="accentOpts">
+      <button data-v="rose" class="on">Music 粉红</button>
+      <button data-v="blue">蓝</button>
+    </div>
+  </div>
+
+  <hr>
+  <h3 style="margin-bottom:8px">已复刻的 27 要点</h3>
+  <ul>
+    <li>侧边栏贴边，去掉悬浮阴影</li>
+    <li>侧边栏图标恢复彩色</li>
+    <li>工具栏统一 + 明确分隔线</li>
+    <li>窗口圆角收小并统一（14px）</li>
+    <li>玻璃更不透明，扩散复杂内容</li>
+    <li>深色描边 + 更亮镜面高光</li>
+    <li>播放器为底部悬浮胶囊</li>
+    <li>侧边栏选中项为中性浅灰</li>
+  </ul>
+  <p class="note">拖动 Liquid Glass 滑块可在「超清透 ↔ 全着色」之间对比；切换侧边栏可在 Golden Gate 与 Tahoe 两种侧边栏之间对比。</p>
+</div>
+
+<script>
+/* ---------- 专辑数据（封面用渐变占位，贴合 App 的 CoverArtwork 兜底逻辑） ---------- */
+const ALBUMS = [
+  { n:'夜航',            a:'陈默',            g:'linear-gradient(135deg,#2b2f8f,#6d3fd1)', playing:true },
+  { n:'Midnight Drive',  a:'The Neons',       g:'linear-gradient(135deg,#ff4d6d,#ff9f43)' },
+  { n:'潮汐',            a:'声潮计划',        g:'linear-gradient(135deg,#0f8f8f,#4fd1c5)' },
+  { n:'Blue Hour',       a:'Aoi',             g:'linear-gradient(135deg,#1b4bff,#5fe0c0)' },
+  { n:'琥珀',            a:'林之',            g:'linear-gradient(135deg,#ff7a18,#d62828)' },
+  { n:'Sunrise Tape',    a:'Kite',            g:'linear-gradient(135deg,#ffd166,#ff7b00)' },
+  { n:'深海回声',        a:'潜',              g:'linear-gradient(135deg,#00b4d8,#023e8a)' },
+  { n:'Ember',           a:'Rosa Vane',       g:'linear-gradient(135deg,#c9184a,#7f1d1d)' },
+  { n:'静电场',          a:'白噪',            g:'linear-gradient(135deg,#7b2ff7,#f107a3)' },
+  { n:'Neon Rain',       a:'Yuki',            g:'linear-gradient(135deg,#00f5a0,#00d9f5)' },
+  { n:'北方以北',        a:'高原乐队',        g:'linear-gradient(135deg,#4361ee,#3a0ca3)' },
+  { n:'Glass Garden',    a:'Pale',            g:'linear-gradient(135deg,#a8edea,#fed6e3)' }
+];
+
+const grid = document.getElementById('grid');
+grid.innerHTML = ALBUMS.map(al => `
+  <div class="card${al.playing ? ' playing' : ''}">
+    <div class="cover">
+      <div class="art" style="background:${al.g}">
+        <svg viewBox="0 0 24 24"><use href="#i-note"/></svg>
+      </div>
+      ${al.playing
+        ? '<div class="eq"><i></i><i></i><i></i></div>'
+        : '<div class="play"><svg viewBox="0 0 24 24"><use href="#i-play"/></svg></div>'}
+    </div>
+    <div class="meta">
+      <b>${al.n}</b>
+      <span>${al.a} · ${6 + Math.floor(Math.random() * 8)} 首</span>
+    </div>
+  </div>
+`).join('');
+
+/* ---------- Liquid Glass 滑块 ---------- */
+const root = document.documentElement;
+const lg = document.getElementById('lg');
+const lgVal = document.getElementById('lgVal');
+lg.addEventListener('input', () => {
+  const v = lg.value / 100;
+  root.style.setProperty('--lg', v.toFixed(3));
+  lgVal.textContent = Math.round(lg.value) + '%';
+});
+
+/* ---------- 通用选项切换 ---------- */
+function bindOpts(id, attr) {
+  const box = document.getElementById(id);
+  box.addEventListener('click', e => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    box.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+    root.setAttribute(attr, btn.dataset.v);
+    if (attr === 'data-theme') syncThemeSeg();
+  });
+}
+bindOpts('themeOpts', 'data-theme');
+bindOpts('sidebarOpts', 'data-sidebar');
+bindOpts('accentOpts', 'data-accent');
+
+/* ---------- 工具栏日夜分段 ---------- */
+const segLight = document.getElementById('segLight');
+const segDark = document.getElementById('segDark');
+function syncThemeSeg() {
+  const light = root.getAttribute('data-theme') === 'light';
+  segLight.classList.toggle('on', light);
+  segDark.classList.toggle('on', !light);
+  document.querySelectorAll('#themeOpts button').forEach(b =>
+    b.classList.toggle('on', b.dataset.v === root.getAttribute('data-theme')));
+}
+segLight.addEventListener('click', () => { root.setAttribute('data-theme', 'light'); syncThemeSeg(); });
+segDark.addEventListener('click', () => { root.setAttribute('data-theme', 'dark'); syncThemeSeg(); });
+
+/* ---------- 播放按钮 ---------- */
+let playing = true;
+const playBtn = document.getElementById('playBtn');
+const playIcon = document.getElementById('playIcon');
+function syncPlay() {
+  playIcon.innerHTML = `<use href="${playing ? '#i-pause' : '#i-play'}"/>`;
+  document.querySelectorAll('.eq').forEach(e => e.style.animationPlayState = playing ? 'running' : 'paused');
+  document.querySelectorAll('.eq i').forEach(e => e.style.animationPlayState = playing ? 'running' : 'paused');
+}
+playBtn.addEventListener('click', () => { playing = !playing; syncPlay(); });
+syncPlay();
+
+/* ---------- 进度条点击 ---------- */
+document.querySelectorAll('.progress .bar, .vol .bar').forEach(bar => {
+  bar.addEventListener('click', e => {
+    const r = bar.getBoundingClientRect();
+    const p = Math.min(100, Math.max(0, (e.clientX - r.left) / r.width * 100));
+    bar.querySelector('.fill').style.width = p + '%';
+    const knob = bar.querySelector('.knob');
+    if (knob) knob.style.left = p + '%';
+  });
+});
+</script>
+</body>
+</html>
