@@ -261,6 +261,24 @@ struct IdleCursorLayer: NSViewRepresentable {
     }
 }
 
+/// 把残留的文本框焦点交还窗口（立即 + 下一拍各试一次）。
+/// 立即是为了让本次点击后的全局快捷键马上恢复；下一拍是防止切分区 / 换列表时
+/// SwiftUI 新建的搜索框在同一帧又把焦点抢回去。
+///
+/// 背景：SwiftUI 的搜索框（歌曲 / 排行榜）拿到焦点后会一直霸着 first responder，
+/// 而全局键盘监视器遇到 NSTextView/NSTextField 聚焦会放行所有按键（保证搜索框能正常输入），
+/// 于是方向键调音量 / 空格 / 切歌 / L / Z 会集体失效。
+func releaseStaleTextFieldFocus(in window: NSWindow? = nil) {
+    let release = {
+        guard let target = window ?? NSApp.mainWindow ?? NSApp.keyWindow,
+              let responder = target.firstResponder,
+              responder is NSTextView || responder is NSTextField else { return }
+        target.makeFirstResponder(nil)
+    }
+    release()
+    DispatchQueue.main.async(execute: release)
+}
+
 struct ContentView: View {
     @ObservedObject private var library = AudioLibrary.shared
     @State private var selectedSidebar = "歌曲"
@@ -280,6 +298,7 @@ struct ContentView: View {
     @State private var coverVolumePopoverVisible = false // 全屏封面控制区：竖排音量条是否展开
     @State private var volumeDragMonitor: Any? = nil     // 音量条拖动的 NSEvent 监视器
     @State private var keyMonitor: Any? = nil
+    @State private var clickMonitor: Any? = nil            // 点击搜索框以外的地方结束编辑
     @Namespace private var coverNamespace
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
@@ -387,7 +406,7 @@ struct ContentView: View {
                 coverVisible = true
                 coverControlsVisible = false
                 showLyrics = true   // 打开播放页时自动显示歌词
-                releaseTextFieldFocus()   // 搜索框残留的焦点会让方向键 / 空格等全局快捷键失效
+                releaseStaleTextFieldFocus(in: hostWindow)   // 搜索框残留的焦点会让方向键 / 空格等全局快捷键失效
                 DispatchQueue.main.asyncAfter(deadline: .now() + coverAnimationDuration * 0.55) {
                     if showFullCover {
                         withAnimation(.easeOut(duration: 0.22)) {
@@ -477,11 +496,38 @@ struct ContentView: View {
                     return event
                 }
             }
+
+            // 启动时 SwiftUI 会把焦点自动给歌曲列表的搜索框，而它一拿到焦点就一直霸着：
+            // 空格 / 方向键 / 切歌 / L / Z 全部失效。等一拍（焦点装好后）交还窗口。
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                releaseStaleTextFieldFocus(in: hostWindow)
+            }
+
+            // 鼠标点在「正在编辑的搜索框」以外的地方就结束编辑（AppKit 里 NSTextField 的标准行为，
+            // SwiftUI 的搜索框不会自己做）。这样点歌曲行 / 切分区 / 点封面 / 右键菜单之后，
+            // 全局快捷键都能立刻恢复，不用逐个点击入口去补交还逻辑。
+            clickMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { event in
+                guard let win = event.window,
+                      let editor = win.firstResponder as? NSTextView,
+                      let field = editor.delegate as? NSView else { return event }
+                // 输入框（窗口坐标）外扩一点，点搜索框胶囊边缘仍算「在框内」，不打断编辑
+                let fieldRect = field.convert(field.bounds, to: nil).insetBy(dx: -8, dy: -8)
+                if !fieldRect.contains(event.locationInWindow) {
+                    win.makeFirstResponder(nil)
+                }
+                return event
+            }
         }
         .onDisappear {
             if let m = keyMonitor {
                 NSEvent.removeMonitor(m)
                 keyMonitor = nil
+            }
+            if let m = clickMonitor {
+                NSEvent.removeMonitor(m)
+                clickMonitor = nil
             }
             removeVolumeDragMonitor()
         }
@@ -523,16 +569,6 @@ struct ContentView: View {
             frame.origin.y = min(max(frame.origin.y, visible.minY), max(visible.minY, visible.maxY - frame.height))
         }
         window.setFrame(frame, display: true, animate: false)
-    }
-
-    // 打开播放页时，把残留的文本框焦点交还窗口。
-    // 全局键盘监视器遇到 NSTextView/NSTextField 聚焦会放行所有按键（保证搜索框能正常输入），
-    // 但搜索框点过一次就会一直霸着 first responder，方向键调音量 / 空格 / 切歌 / L / Z 会集体失效。
-    private func releaseTextFieldFocus() {
-        guard let window = NSApp.keyWindow ?? hostWindow,
-              let responder = window.firstResponder,
-              responder is NSTextView || responder is NSTextField else { return }
-        window.makeFirstResponder(nil)
     }
 
     // 大封面界面：方向键调音量时在顶端显示音量胶囊，1.6s 后自动淡出
