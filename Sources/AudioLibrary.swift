@@ -274,6 +274,12 @@ struct AudioTrack: Identifiable, Codable {
         guard bitDepth > 0 else { return nil }
         return "\(bitDepth) bit"
     }
+
+    /// 码率显示文本，如 "320 kbps"、"1411 kbps"
+    var bitrateText: String? {
+        guard bitrate > 0 else { return nil }
+        return "\(bitrate) kbps"
+    }
 }
 
 struct AlbumGroup: Identifiable {

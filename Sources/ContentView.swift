@@ -2256,9 +2256,15 @@ struct TrackRow: View {
                             .lineLimit(1)
                     }
                     Spacer()
+                    // 码率（无损 FLAC / ALAC 会显示 1000+ kbps）
+                    Text(track.bitrateText ?? "—")
+                        .font(ui.fs(FB.caption).monospacedDigit())
+                        .foregroundStyle(theme.tertiaryText)
+                        .frame(width: ui.s(78), alignment: .trailing)
                     Text(library.formatTime(track.duration))
                         .font(ui.fs(FB.caption).monospacedDigit())
                         .foregroundStyle(theme.secondaryText)
+                        .frame(width: ui.s(44), alignment: .trailing)
                 }
                 .contentShape(Rectangle())
             }
@@ -2351,9 +2357,15 @@ struct PlaylistTrackRow: View {
                             .lineLimit(1)
                     }
                     Spacer()
+                    // 码率（无损 FLAC / ALAC 会显示 1000+ kbps）
+                    Text(track.bitrateText ?? "—")
+                        .font(ui.fs(FB.caption).monospacedDigit())
+                        .foregroundStyle(theme.tertiaryText)
+                        .frame(width: ui.s(78), alignment: .trailing)
                     Text(library.formatTime(track.duration))
                         .font(ui.fs(FB.caption).monospacedDigit())
                         .foregroundStyle(theme.secondaryText)
+                        .frame(width: ui.s(44), alignment: .trailing)
                 }
                 .contentShape(Rectangle())
             }
