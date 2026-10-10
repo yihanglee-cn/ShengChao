@@ -2,7 +2,7 @@
 
 > 液态玻璃（Liquid Glass）风格的原生 macOS 无损音乐播放器
 
-声潮是一款用 **SwiftUI + AVFoundation** 编写的 macOS 本地音乐播放器，主打无损播放、macOS 26 液态玻璃视觉，以及**动态封面 / 3D 封面**等特色功能。
+声潮是一款用 **SwiftUI + AVFoundation** 编写的 macOS 本地音乐播放器，主打无损播放、macOS 26 液态玻璃视觉，以及**动态封面**等特色功能。
 
 ---
 
@@ -17,9 +17,6 @@
 
 ### 封面
 - 🖼 **动态封面**：专辑文件夹中的 `cover.mp4` 自动识别，播放时显示动态封面（悬浮窗、播放栏、大封面共享一个播放器，进度同步）
-- 🧊 **3D 封面**：内置 Depth Anything V2 深度估计模型（ONNX），为每张封面生成独立深度图；大封面模式下**鼠标在屏幕任意位置移动即驱动 3D 视差**，前景浮起、背景分离
-  - 深度图自动缓存到专辑文件夹（`cover3d_depth_v2.png`），下次打开秒读，无需重复计算
-  - 与动态封面开关互斥；节能模式下自动关闭
 - 🏷 **FLAC 内嵌封面/标签**：完整读取内嵌封面与标签信息
 
 ### 歌词
@@ -33,9 +30,6 @@
 - 🪟 **全局悬浮窗**：随时置顶的小播放器（动态封面、hover 红点关闭按钮）
 - 🗂 **完整曲库视图**：专辑 / 艺术家 / 歌曲 / 收藏 / 最近播放 / 播放列表
 - 🎚 **智能排序**：曲目按 CUE 偏移 > trackNumber > 文件名数字 > 标题排序
-
-### 节能
-- 🔋 **节能模式**：设置中开启后自动关闭 3D 封面，降低资源占用
 
 ---
 
@@ -77,11 +71,9 @@ cd LiquidGlassPlayer
 1. **添加曲库**：启动后点侧边栏「专辑」→ 选择音乐文件夹（支持外置硬盘/网络卷）
 2. **播放**：双击任意曲目，或点播放按钮；双击专辑可整张播放
 3. **查看专辑**：点侧边栏切换「专辑 / 艺术家 / 歌曲 / 最近播放 / 收藏 / 播放列表」
-4. **大封面**：点击播放栏左下角封面（快捷键 `Z`）——大封面模式下：
-   - 开启「3D 封面」后，移动鼠标（全屏范围）封面随视差立体变化
-   - 开启「动态封面」后，显示 cover.mp4 动态效果
+4. **大封面**：点击播放栏左下角封面（快捷键 `Z`）——大封面模式下开启「动态封面」即显示 cover.mp4 动态效果
 5. **歌词**：右键专辑封面 →「添加歌词…」，播放时按 `L` 显示
-6. **设置**：右上角齿轮（⚙️）——节能模式 / 动态封面 / 3D 封面开关
+6. **设置**：右上角齿轮（⚙️）——动态封面 / 全屏封面 / 界面缩放
 
 ---
 
@@ -103,13 +95,9 @@ LiquidGlassPlayer/
 │   ├── LiquidGlassPlayerApp.swift   # App 入口（含设置窗口）
 │   ├── ContentView.swift            # 主界面（侧边栏/播放栏/大封面/设置）
 │   ├── AudioLibrary.swift           # 曲库扫描/播放引擎/CUE 解析/歌词下载
-│   ├── DepthEngine.swift            # 3D 封面深度推理（ONNX）
-│   ├── ParallaxCoverView.swift      # 3D 视差渲染（Core Image）
 │   ├── SplashView.swift             # 启动动画
 │   ├── FloatingPlayerView.swift     # 全局悬浮窗
 │   ├── Lyrics.swift                 # 歌词解析
-│   ├── ort_bridge.c / bridge.h      # ONNX Runtime C 桥接层
-├── vendor/                          # ONNX Runtime 动态库与头文件、深度模型
 ├── assets/                          # 图标等资源
 ├── build.sh                         # 构建脚本
 └── make_dmg.sh                      # DMG 打包脚本
@@ -118,6 +106,4 @@ LiquidGlassPlayer/
 ## 📄 许可证
 
 - 声潮本体：**MIT License**（见 [LICENSE](LICENSE)）
-- 深度模型：[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)（MIT License）
-- 运行时：[ONNX Runtime](https://github.com/microsoft/onnxruntime)（MIT License）
 - 歌词数据：[lrclib.net](https://lrclib.net)（免费 API）

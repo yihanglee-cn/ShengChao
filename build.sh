@@ -20,20 +20,12 @@ echo "==> 清理旧构建"
 rm -rf build
 mkdir -p "${BUNDLE}/Contents/MacOS" "${BUNDLE}/Contents/Resources"
 
-echo "==> 编译 C 桥接层"
-mkdir -p build
-clang -c Sources/ort_bridge.c -I vendor/include -o build/ort_bridge.o
-
 echo "==> 编译 Swift (SDK: ${SDK})"
 swiftc -parse-as-library \
   -sdk "${SDK}" \
   -target "${TARGET}" \
   -swift-version 5 \
   -framework SwiftUI -framework AppKit -framework AVFoundation -framework CoreImage -framework Network \
-  -import-objc-header Sources/bridge.h \
-  build/ort_bridge.o \
-  vendor/libonnxruntime.1.dylib \
-  -Xlinker -rpath -Xlinker "@executable_path/../Frameworks" \
   -O \
   -o "${BUNDLE}/Contents/MacOS/${EXEC_NAME}" \
   Sources/LiquidGlassPlayerApp.swift \
@@ -47,14 +39,7 @@ swiftc -parse-as-library \
   Sources/MainWindowFrame.swift \
   Sources/ContentView.swift \
   Sources/FloatingPlayerView.swift \
-  Sources/SplashView.swift \
-  Sources/DepthEngine.swift \
-  Sources/ParallaxCoverView.swift
-
-echo "==> 拷贝 ORT 运行时与模型"
-mkdir -p "${BUNDLE}/Contents/Frameworks"
-cp vendor/libonnxruntime.1.dylib "${BUNDLE}/Contents/Frameworks/"
-cp vendor/cover3d_model.onnx "${BUNDLE}/Contents/Resources/cover3d_model.onnx"
+  Sources/SplashView.swift
 
 echo "==> 生成图标"
 ICONSET="build/AppIcon.iconset"

@@ -13,12 +13,6 @@ settings:
     CODE_SIGNING_ALLOWED: YES
     INFOPLIST_FILE: Info.plist
     PRODUCT_BUNDLE_IDENTIFIER: com.dan.liquidglassplayer
-    LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
-    LIBRARY_SEARCH_PATHS:
-      - $(SRCROOT)/vendor
-    HEADER_SEARCH_PATHS:
-      - $(SRCROOT)/vendor/include
-    SWIFT_OBJC_BRIDGING_HEADER: Sources/bridge.h
     ENABLE_HARDENED_RUNTIME: NO
     ONLY_ACTIVE_ARCH: YES
 
@@ -28,11 +22,6 @@ targets:
     platform: macOS
     sources:
       - path: Sources
-      - path: vendor/cover3d_model.onnx
-    dependencies:
-      - framework: vendor/libonnxruntime.1.dylib
-        embed: true
-        codeSign: true
     settings:
       base:
         PRODUCT_NAME: LiquidGlassPlayer

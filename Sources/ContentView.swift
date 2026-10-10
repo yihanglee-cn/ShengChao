@@ -183,7 +183,7 @@ final class ScrollPositionStore {
 // MARK: - 音量条几何（拖动由 NSEvent 本地监视器处理，这里只负责上报矩形）
 
 /// 全屏覆盖层里 SwiftUI 自定义拖动手势拿不到事件（会被外层手势/平台视图吞掉），
-/// 音量条拖动因此改用 NSEvent 本地监视器（与 ParallaxStore 同一套做法）：
+/// 音量条拖动因此改用 NSEvent 本地监视器：
 /// 这里记录音量条的窗口坐标（AppKit 左下原点），供监视器做命中判定
 final class VolumeBarFrameStore {
     static let shared = VolumeBarFrameStore()
@@ -283,7 +283,6 @@ struct ContentView: View {
     @Namespace private var coverNamespace
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
     @State private var hostWindow: NSWindow?
@@ -716,13 +715,7 @@ struct ContentView: View {
                 // 封面（Hero 动画：全程不透明，只做移动+缩放）
                 // HeroCover：scaleEffect 平滑放大（视频层不跳变），视觉圆角 10→22 不变
                 Group {
-                    if cover3DEnabled, let art = library.currentTrack?.artwork {
-                        // 3D 封面：封面 + 深度图视差（鼠标全屏驱动）
-                        // .id() 按专辑文件夹强制重建——否则 SwiftUI 复用视图时 @State depth 残留上一张专辑的深度
-                        ParallaxCover3DView(cover: art,
-                                            albumFolder: library.currentTrack?.url.deletingLastPathComponent())
-                            .id(library.currentTrack?.url.deletingLastPathComponent().path ?? "no-folder")
-                    } else if dynamicCoverEnabled, let dyn = library.currentTrack?.dynamicCoverURL {
+                    if dynamicCoverEnabled, let dyn = library.currentTrack?.dynamicCoverURL {
                         DynamicCoverView(url: dyn)
                     } else {
                         CoverArtwork(artwork: library.currentTrack?.artworkThumbnail,
@@ -1308,7 +1301,6 @@ struct SettingsPanel: View {
     @Binding var showSettings: Bool
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
     @State private var hoveringClose = false
             private var theme: AppTheme { nightMode ? .night : .day }
@@ -1340,27 +1332,9 @@ struct SettingsPanel: View {
                         .tint(.blue)
                         .accentColor(.blue)
                         .help("动态封面")
-                        .onChange(of: dynamicCoverEnabled) { _, newValue in
-                            if newValue { cover3DEnabled = false }
-                        }
                 }
 
-                // 行 2：3D 封面
-                HStack(spacing: ui.s(12)) {
-                    Text("3D 封面")
-                        .foregroundStyle(theme.primaryText)
-                    Spacer(minLength: 12)
-                    Toggle("", isOn: $cover3DEnabled)
-                        .toggleStyle(.switch)
-                        .tint(.blue)
-                        .accentColor(.blue)
-                        .help("3D 封面")
-                        .onChange(of: cover3DEnabled) { _, newValue in
-                            if newValue { dynamicCoverEnabled = false }
-                        }
-                }
-
-                // 行 3：全屏封面
+                // 行 2：全屏封面
                 HStack(spacing: ui.s(12)) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("全屏封面")
@@ -1513,7 +1487,6 @@ struct SettingsView: View {
     @ObservedObject private var library = AudioLibrary.shared
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    @AppStorage("cover3DEnabled") private var cover3DEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
     @AppStorage("settingsWindowOpen") private var settingsWindowOpen = false
     @Environment(\.dismissWindow) private var dismissWindow
@@ -1533,27 +1506,9 @@ struct SettingsView: View {
                     .tint(.blue)
                     .accentColor(.blue)
                     .help("动态封面")
-                    .onChange(of: dynamicCoverEnabled) { _, newValue in
-                        if newValue { cover3DEnabled = false }
-                    }
             }
 
-            // 行 2：3D 封面
-            HStack(spacing: ui.s(12)) {
-                Text("3D 封面")
-                    .foregroundStyle(theme.primaryText)
-                Spacer(minLength: 12)
-                Toggle("", isOn: $cover3DEnabled)
-                    .toggleStyle(.switch)
-                    .tint(.blue)
-                    .accentColor(.blue)
-                    .help("3D 封面")
-                    .onChange(of: cover3DEnabled) { _, newValue in
-                        if newValue { dynamicCoverEnabled = false }
-                    }
-            }
-
-                    // 行 3：全屏封面
+            // 行 2：全屏封面
             HStack(spacing: ui.s(12)) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("全屏封面")

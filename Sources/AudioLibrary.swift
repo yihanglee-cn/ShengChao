@@ -49,6 +49,8 @@ func downsampleImage(_ image: NSImage, maxDimension: CGFloat = 512) -> NSImage {
 final class ArtworkCache {
     static let shared = ArtworkCache()
     private let cache = NSCache<NSString, NSImage>()
+    /// 已生成过缩略图的边长档位：删除曲目时按档位清内存缓存，避免以后新增尺寸时漏清
+    private var thumbnailSizes: Set<Int> = []
     
     private init() {
         // 最多缓存 100 张封面，约 100MB 上限
@@ -103,6 +105,7 @@ final class ArtworkCache {
     
     /// 曲库缓存封面文件的缩略图（首次生成后落盘，滚动列表只读小图，避免反复解码大封面）
     func thumbnail(forKey key: String, diskName: String, maxSize: CGFloat = 200) -> NSImage? {
+        thumbnailSizes.insert(Int(maxSize))
         let thumbKey = "\(key)_thumb_\(Int(maxSize))"
         if let cached = cache.object(forKey: thumbKey as NSString) {
             return cached
@@ -135,6 +138,7 @@ final class ArtworkCache {
     ///   - data: 原始封面数据
     ///   - maxSize: 缩略图最大边长（点）
     func thumbnail(forKey key: String, data: Data, maxSize: CGFloat = 200) -> NSImage? {
+        thumbnailSizes.insert(Int(maxSize))
         let thumbKey = "\(key)_thumb_\(Int(maxSize))"
         if let cached = cache.object(forKey: thumbKey as NSString) {
             return cached
@@ -148,6 +152,7 @@ final class ArtworkCache {
     
     /// 获取文件夹封面的缩略图
     func thumbnail(forPath path: String, maxSize: CGFloat = 200) -> NSImage? {
+        thumbnailSizes.insert(Int(maxSize))
         let thumbKey = "\(path)_thumb_\(Int(maxSize))"
         if let cached = cache.object(forKey: thumbKey as NSString) {
             return cached
@@ -164,23 +169,50 @@ final class ArtworkCache {
         cache.removeAllObjects()
     }
 
-    /// 清理单首歌曲的封面缓存：内存中该曲目的封面/缩略图 + 磁盘落盘的封面原图与各尺寸缩略图。
+    /// 清理单首歌曲的封面缓存：内存中该曲目的封面/缩略图 + 磁盘落盘的封面原图与所有尺寸缩略图。
     /// 删除本地歌曲时调用，避免 artwork 目录残留孤儿文件。
     /// - Parameters:
     ///   - key: 缓存 key（通常为曲目 url.path）
     ///   - diskName: 落盘封面文件名（如 nil 则只清内存缓存）
     func removeArtifacts(forKey key: String, diskName: String?) {
-        // 内存缓存：封面图 + 列表用的缩略图（maxSize 200）
+        // 内存缓存：封面原图 + 所有已生成档位的缩略图
         cache.removeObject(forKey: key as NSString)
-        cache.removeObject(forKey: "\(key)_thumb_200" as NSString)
+        for size in thumbnailSizes {
+            cache.removeObject(forKey: "\(key)_thumb_\(size)" as NSString)
+        }
         // 磁盘落盘：封面原图 + 所有尺寸的缩略图
         guard let diskName else { return }
+        try? FileManager.default.removeItem(at: Self.diskArtworkDirectory.appendingPathComponent(diskName))
+        Self.removeThumbnailFiles(forDiskName: diskName)
+    }
+
+    /// 删除某个封面文件名对应的全部尺寸缩略图（thumb_<尺寸>_<封面文件名>），与具体尺寸档位解耦
+    static func removeThumbnailFiles(forDiskName diskName: String) {
         let fm = FileManager.default
-        let dir = Self.diskArtworkDirectory
-        try? fm.removeItem(at: dir.appendingPathComponent(diskName))
-        if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
-            for file in files where file.lastPathComponent.hasPrefix("thumb_")
-                && file.lastPathComponent.hasSuffix("_" + diskName) {
+        let dir = diskArtworkDirectory
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for file in files where file.lastPathComponent.hasPrefix("thumb_")
+            && file.lastPathComponent.hasSuffix("_" + diskName) {
+            try? fm.removeItem(at: file)
+        }
+    }
+
+    /// 回收不再被曲库引用的封面原图与缩略图。
+    /// 曲目在 App 外被删除/移动/改名，或在 App 外被换成无内嵌封面的文件时，
+    /// 扫描阶段只会剔除索引、不碰 artwork 目录，残留封面必须在这里清掉，否则该目录只增不减。
+    /// - Parameter keeping: 仍需保留的封面文件名集合（当前曲库所有 artworkDiskName）
+    static func pruneOrphans(keeping: Set<String>) {
+        let fm = FileManager.default
+        let dir = diskArtworkDirectory
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for file in files {
+            let name = file.lastPathComponent
+            // 缩略图 thumb_<尺寸>_<封面文件名>：看它依附的封面是否还需要
+            if let range = name.range(of: #"^thumb_\d+_"#, options: .regularExpression) {
+                if !keeping.contains(String(name[range.upperBound...])) {
+                    try? fm.removeItem(at: file)
+                }
+            } else if !keeping.contains(name) {
                 try? fm.removeItem(at: file)
             }
         }
@@ -1130,8 +1162,11 @@ final class AudioLibrary: ObservableObject {
                                     cueSignatures: cueSigs,
                                     cueTrackKeys: cueTrackKeys,
                                     scannedAt: Date())
+        let keptArtwork = Set(cacheTracks.compactMap { $0.artworkDiskName })
         Task.detached(priority: .utility) {
             Self.persistArtworkFiles(allTracks)
+            // 曲目在 App 外被删除/改名/换成无封面文件后，磁盘上的封面与缩略图在这里回收
+            ArtworkCache.pruneOrphans(keeping: keptArtwork)
             Self.saveCache(newCache)
         }
 
@@ -1210,24 +1245,34 @@ final class AudioLibrary: ObservableObject {
         return digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
     }
 
-    /// 把内嵌封面写盘（文件变化时覆盖写，并删除旧缩略图缓存）
+    /// 内嵌封面落盘的最大边长。全屏封面模式按窗口高度铺满（Retina 下需千级像素），
+    /// 再大只是徒增磁盘占用，所以统一压到这一档。
+    private static nonisolated let artworkDiskMaxDimension: CGFloat = 1200
+
+    /// 把内嵌封面降采样后写盘（内容变化时覆盖写，并删除旧缩略图缓存）
     private static nonisolated func persistArtworkFiles(_ tracks: [AudioTrack]) {
-        let fm = FileManager.default
         let dir = ArtworkCache.diskArtworkDirectory
         for track in tracks {
             guard let data = track.artworkData, !data.isEmpty else { continue }
             let diskName = Self.artworkDiskName(for: track)
             let url = dir.appendingPathComponent(diskName)
-            // 只要新封面数据和磁盘上的不同就重写（封面被用户修改过）
-            if let oldData = try? Data(contentsOf: url), oldData == data { continue }
-            try? data.write(to: url, options: .atomic)
+            // 原始内嵌封面可能远大于显示所需，统一降采样 + 重编码后再落盘
+            guard let image = NSImage(data: data),
+                  let encoded = Self.jpegData(downsampleImage(image, maxDimension: Self.artworkDiskMaxDimension))
+            else { continue }
+            // 编码结果一致就不重写：反复扫描保持幂等，不会每次都重建缩略图
+            if let oldData = try? Data(contentsOf: url), oldData == encoded { continue }
+            try? encoded.write(to: url, options: .atomic)
             // 封面更新了，删除旧缩略图，下次访问重新生成
-            if let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
-                for file in files where file.lastPathComponent.hasPrefix("thumb_") && file.lastPathComponent.hasSuffix("_" + diskName) {
-                    try? fm.removeItem(at: file)
-                }
-            }
+            ArtworkCache.removeThumbnailFiles(forDiskName: diskName)
         }
+    }
+
+    /// 重编码为 JPEG。同一输入必须产出同样的字节，落盘的幂等判断依赖这一点。
+    private static nonisolated func jpegData(_ image: NSImage, compression: CGFloat = 0.85) -> Data? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .jpeg, properties: [.compressionFactor: compression])
     }
 
     /// 生成落盘用曲目列表：内嵌封面从 JSON 中移除、改为引用落盘文件名（减小缓存体积）
@@ -1337,9 +1382,7 @@ final class AudioLibrary: ObservableObject {
         }
         let images = items.filter {
             let ext = $0.pathExtension.lowercased()
-            let name = $0.deletingPathExtension().lastPathComponent.lowercased()
             return ["jpg", "jpeg", "png", "webp", "heic"].contains(ext)
-                && !name.hasPrefix("cover3d_depth")  // 排除 3D 深度缓存（黑白深度图不能当封面）
         }
         for name in preferred {
             if let match = images.first(where: {
