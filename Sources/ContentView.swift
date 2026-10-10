@@ -2232,7 +2232,7 @@ struct AlbumDetailView: View {
                     Spacer()
                 }
 
-                LazyVStack(spacing: ui.s(6)) {
+                LazyVStack(spacing: 0) {
                     ForEach(album.tracks) { track in
                         TrackRow(track: track, library: library)
                     }
@@ -2308,8 +2308,15 @@ struct TrackRow: View {
             }
             .buttonStyle(.plain)
         }
+        // 分隔线从文字左边开始，跟封面错开（对齐 Apple Music 的列表样式）
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(height: 1)
+                .padding(.leading, ui.s(52))
+        }
         .padding(.horizontal, ui.s(14))
-        .padding(.vertical, ui.s(8))
+        .padding(.vertical, ui.s(10))
         .background {
             if library.currentTrack?.id == track.id {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -2409,8 +2416,15 @@ struct PlaylistTrackRow: View {
             }
             .buttonStyle(.plain)
         }
+        // 分隔线从文字左边开始，跟封面错开（对齐 Apple Music 的列表样式）
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(height: 1)
+                .padding(.leading, ui.s(52))
+        }
         .padding(.horizontal, ui.s(14))
-        .padding(.vertical, ui.s(8))
+        .padding(.vertical, ui.s(10))
         .background {
             if library.currentTrack?.id == track.id {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -2469,7 +2483,7 @@ struct SongListView: View {
                         .foregroundStyle(theme.secondaryText)
                         .padding(.top, ui.s(20))
                 } else {
-                    LazyVStack(spacing: ui.s(6)) {
+                    LazyVStack(spacing: 0) {
                         ForEach(filteredTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2525,7 +2539,7 @@ struct RecentListView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, ui.s(60))
                 } else {
-                    LazyVStack(spacing: ui.s(6)) {
+                    LazyVStack(spacing: 0) {
                         ForEach(library.recentTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2557,6 +2571,48 @@ struct ArtistListView: View {
         return library.tracks.filter { $0.artist == artist }
     }
 
+    /// 艺人头像：本地曲库没有艺人写真，退而用他第一张有封面的专辑图
+    private var artistArtworks: [String: NSImage] {
+        var map: [String: NSImage] = [:]
+        for track in library.tracks where map[track.artist] == nil {
+            if let art = track.artworkThumbnail { map[track.artist] = art }
+        }
+        return map
+    }
+
+    /// 每位艺人的曲目数：一次遍历算好，避免在列表里对每位艺人重扫全库
+    private var artistCounts: [String: Int] {
+        var map: [String: Int] = [:]
+        for track in library.tracks { map[track.artist, default: 0] += 1 }
+        return map
+    }
+
+    /// 圆形艺人头像：有封面用封面，没有则用渐变底 + 名字首字
+    @ViewBuilder
+    private func artistAvatar(_ artist: String) -> some View {
+        let side = ui.s(40)
+        Group {
+            if let art = artistArtworks[artist] {
+                Image(nsImage: art)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    LinearGradient(colors: gradientFor(artist),
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Text(String(artist.prefix(1)))
+                        .font(ui.fs(FB.title3, .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(Circle())
+        .overlay {
+            Circle().stroke(theme.hairline, lineWidth: 0.5)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: ui.s(16)) {
@@ -2583,7 +2639,7 @@ struct ArtistListView: View {
                         Spacer()
                     }
 
-                    LazyVStack(spacing: ui.s(6)) {
+                    LazyVStack(spacing: 0) {
                         ForEach(selectedTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2596,29 +2652,35 @@ struct ArtistListView: View {
                         .font(ui.fs(FB.subheadline))
                         .foregroundStyle(theme.secondaryText)
 
-                    LazyVStack(spacing: ui.s(6)) {
+                    LazyVStack(spacing: 0) {
                         ForEach(artistNames, id: \.self) { artist in
                             Button {
                                 selectedArtist = artist
                             } label: {
                                 HStack(spacing: ui.s(12)) {
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .font(ui.fs(FB.title2))
-                                        .foregroundStyle(theme.primaryText)
+                                    artistAvatar(artist)
                                     Text(artist)
                                         .font(ui.fs(FB.body))
                                         .foregroundStyle(theme.primaryText)
-                                    Spacer()
-                                    Text("\(library.tracks.filter { $0.artist == artist }.count) 首")
+                                        .lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text("\(artistCounts[artist] ?? 0) 首")
                                         .font(ui.fs(FB.caption))
                                         .foregroundStyle(theme.secondaryText)
+                                    Image(systemName: "chevron.right")
+                                        .font(ui.fs(FB.caption, .semibold))
+                                        .foregroundStyle(theme.tertiaryText)
+                                }
+                                // 分隔线从文字左边开始，跟头像错开（对齐 Apple Music 的列表样式）
+                                .overlay(alignment: .bottom) {
+                                    Rectangle()
+                                        .fill(theme.hairline)
+                                        .frame(height: 1)
+                                        .padding(.leading, ui.s(52))
                                 }
                                 .padding(.horizontal, ui.s(14))
-                                .padding(.vertical, ui.s(10))
-                                .background {
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .fill(theme.fieldFill)
-                                }
+                                .padding(.vertical, ui.s(9))
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -2661,7 +2723,7 @@ struct FavoritesView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, ui.s(60))
                 } else {
-                    LazyVStack(spacing: ui.s(6)) {
+                    LazyVStack(spacing: 0) {
                         ForEach(library.favoriteTracks) { track in
                             TrackRow(track: track, library: library)
                         }
@@ -2721,7 +2783,7 @@ struct PlaylistView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, ui.s(60))
                     } else {
-                        LazyVStack(spacing: ui.s(6)) {
+                        LazyVStack(spacing: 0) {
                             ForEach(playlistTracks) { track in
                                 PlaylistTrackRow(track: track, playlist: playlist, library: library)
                             }
