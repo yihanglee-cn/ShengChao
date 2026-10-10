@@ -2711,6 +2711,16 @@ struct NowPlayingBar: View {
     @State private var isDragging = false
     @State private var isVolumeDragging = false
 
+    /// 悬停提示：歌手 — 专辑 · 采样率 · 位深 · 实时码率
+    private var qualityDescription: String {
+        guard let track = library.currentTrack else { return "选择一首歌曲开始播放" }
+        var parts = ["\(track.artist) — \(track.album)"]
+        if let sr = track.sampleRateText { parts.append(sr) }
+        if let bd = track.bitDepthText { parts.append(bd) }
+        if let br = library.liveBitrate, br > 0 { parts.append("\(br) kbps") }
+        return parts.joined(separator: " · ")
+    }
+
     private func openFullCover() {
         guard library.currentTrack != nil else { return }
         withAnimation(.easeInOut(duration: coverAnimationDuration)) {
@@ -2755,27 +2765,16 @@ struct NowPlayingBar: View {
                         .foregroundStyle(theme.primaryText)
                         .lineLimit(1)
                         .id(library.currentTrack?.id)  // 切歌时强制重建（防御 UI 不刷新）
-                    HStack(spacing: ui.s(6)) {
-                        Text(library.currentTrack.map { "\($0.artist) — \($0.album)" } ?? "选择一首歌曲开始播放")
-                            .lineLimit(1)
-                        if let sr = library.currentTrack?.sampleRateText {
-                            Text("· \(sr)")
-                                .foregroundStyle(theme.tertiaryText)
-                        }
-                        if let bd = library.currentTrack?.bitDepthText {
-                            Text("· \(bd)")
-                                .foregroundStyle(theme.tertiaryText)
-                        }
-                        if let br = library.liveBitrate, br > 0 {
-                            Text("· \(br) kbps")
-                                .foregroundStyle(theme.tertiaryText)
-                        }
-                    }
-                    .font(ui.fs(FB.subheadline))
-                    .foregroundStyle(theme.secondaryText)
-                    .id(library.currentTrack?.id)  // 切歌时强制重建
+                    // 只留歌手：之前把专辑 + 采样率 + 位深 + 码率全挤在这一行，
+                    // 175pt 宽度下会变成一串省略号。完整规格改到悬停提示里。
+                    Text(library.currentTrack?.artist ?? "选择一首歌曲开始播放")
+                        .font(ui.fs(FB.subheadline))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                        .id(library.currentTrack?.id)  // 切歌时强制重建
                 }
                 .lineLimit(1)
+                .help(qualityDescription)
             }
             .frame(width: ui.s(175), alignment: .leading)
 
@@ -2787,7 +2786,6 @@ struct NowPlayingBar: View {
                         .font(ui.fs(13, .semibold))
                         .foregroundStyle(library.playbackMode == .off ? theme.tertiaryText : theme.primaryText)
                         .frame(width: ui.s(28), height: ui.s(28))
-                        .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
 
@@ -2796,7 +2794,6 @@ struct NowPlayingBar: View {
                         .font(ui.fs(14, .semibold))
                         .foregroundStyle(theme.primaryText)
                         .frame(width: ui.s(30), height: ui.s(30))
-                        .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.tracks.isEmpty)
@@ -2806,7 +2803,6 @@ struct NowPlayingBar: View {
                         .font(ui.fs(17, .bold))
                         .foregroundStyle(theme.primaryText)
                         .frame(width: ui.s(36), height: ui.s(36))
-                        .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.currentTrack == nil)
@@ -2816,7 +2812,6 @@ struct NowPlayingBar: View {
                         .font(ui.fs(14, .semibold))
                         .foregroundStyle(theme.primaryText)
                         .frame(width: ui.s(30), height: ui.s(30))
-                        .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.tracks.isEmpty)
@@ -2830,7 +2825,6 @@ struct NowPlayingBar: View {
                         .font(ui.fs(14, .semibold))
                         .foregroundStyle(library.currentTrack.map { library.isFavorite($0) } == true ? .red : theme.primaryText)
                         .frame(width: ui.s(28), height: ui.s(28))
-                        .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.currentTrack == nil)
