@@ -2552,6 +2552,42 @@ struct RecentListView: View {
     }
 }
 
+// MARK: - 艺术家索引缓存
+
+/// 艺人索引（头像 + 曲目数）缓存，按「曲库版本」缓存。
+///
+/// 为什么必须缓存：艺人头像要用 `ArtworkCache` 的缩略图，而那个缓存
+/// `countLimit` 只有 100，曲库却有 183 张专辑。如果每次 SwiftUI 求值
+/// `body` 都遍历全库去建「艺人 → 封面」表，就会不断把刚读进来的缩略图
+/// 挤出去，下一次又得从磁盘读小图 + 解码，滚动必然卡死。
+/// 这里只在曲库真正变化后重建一次，之后直接命中内存。
+private final class ArtistIndexCache {
+    static let shared = ArtistIndexCache()
+
+    private var version = "\u{0}"
+    private var artworks: [String: NSImage] = [:]
+    private var counts: [String: Int] = [:]
+
+    func index(for tracks: [AudioTrack], version newVersion: String)
+        -> (artworks: [String: NSImage], counts: [String: Int]) {
+        if version == newVersion {
+            return (artworks, counts)
+        }
+        var arts: [String: NSImage] = [:]
+        var cnts: [String: Int] = [:]
+        for track in tracks {
+            cnts[track.artist, default: 0] += 1
+            if arts[track.artist] == nil, let art = track.artworkThumbnail {
+                arts[track.artist] = art
+            }
+        }
+        version = newVersion
+        artworks = arts
+        counts = cnts
+        return (arts, cnts)
+    }
+}
+
 // MARK: - 艺术家列表
 
 struct ArtistListView: View {
@@ -2571,28 +2607,13 @@ struct ArtistListView: View {
         return library.tracks.filter { $0.artist == artist }
     }
 
-    /// 艺人头像：本地曲库没有艺人写真，退而用他第一张有封面的专辑图
-    private var artistArtworks: [String: NSImage] {
-        var map: [String: NSImage] = [:]
-        for track in library.tracks where map[track.artist] == nil {
-            if let art = track.artworkThumbnail { map[track.artist] = art }
-        }
-        return map
-    }
-
-    /// 每位艺人的曲目数：一次遍历算好，避免在列表里对每位艺人重扫全库
-    private var artistCounts: [String: Int] {
-        var map: [String: Int] = [:]
-        for track in library.tracks { map[track.artist, default: 0] += 1 }
-        return map
-    }
-
-    /// 圆形艺人头像：有封面用封面，没有则用渐变底 + 名字首字
+    /// 圆形艺人头像：有封面用封面，没有则用渐变底 + 名字首字。
+    /// artworks 必须由调用方传进来——写成计算属性的话每建一行都要重扫全库。
     @ViewBuilder
-    private func artistAvatar(_ artist: String) -> some View {
+    private func artistAvatar(_ artist: String, artworks: [String: NSImage]) -> some View {
         let side = ui.s(40)
         Group {
-            if let art = artistArtworks[artist] {
+            if let art = artworks[artist] {
                 Image(nsImage: art)
                     .resizable()
                     .scaledToFill()
@@ -2614,7 +2635,15 @@ struct ArtistListView: View {
     }
 
     var body: some View {
-        ScrollView {
+        // 按曲库版本取缓存索引：只在曲库变化后重建一次。
+        // 千万不能每次 body 求值都重扫全库——头像要走 ArtworkCache 取缩略图，
+        // 而那个缓存只有 100 条、专辑有 183 张，重扫会不断淘汰重读、走磁盘 IO。
+        let index = ArtistIndexCache.shared.index(for: library.tracks,
+                                                 version: "\(library.tracks.count)-\(library.albums.count)")
+        let artworks = index.artworks
+        let counts = index.counts
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: ui.s(16)) {
                 if let artist = selectedArtist {
                     HStack(spacing: ui.s(12)) {
@@ -2658,13 +2687,13 @@ struct ArtistListView: View {
                                 selectedArtist = artist
                             } label: {
                                 HStack(spacing: ui.s(12)) {
-                                    artistAvatar(artist)
+                                    artistAvatar(artist, artworks: artworks)
                                     Text(artist)
                                         .font(ui.fs(FB.body))
                                         .foregroundStyle(theme.primaryText)
                                         .lineLimit(1)
                                     Spacer(minLength: 8)
-                                    Text("\(artistCounts[artist] ?? 0) 首")
+                                    Text("\(counts[artist] ?? 0) 首")
                                         .font(ui.fs(FB.caption))
                                         .foregroundStyle(theme.secondaryText)
                                     Image(systemName: "chevron.right")
