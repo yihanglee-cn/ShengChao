@@ -395,6 +395,11 @@ struct ContentView: View {
                         }
                     }
                 }
+            } else if fullScreenCoverMode {
+                // 全屏封面模式：Hero 封面层不参与（.opacity 恒为 0），没有回程动画要等，
+                // 封面直接由底部控制栏自己淡入。若仍按窗口化那样延迟，播放栏其它内容
+                // 早已淡入完毕，专辑图会更晚才「啪」地出现，看着就是慢一拍。
+                coverVisible = false
             } else {
                 // 等关闭动画结束再隐藏大封面层，让回程动画可见
                 DispatchQueue.main.asyncAfter(deadline: .now() + coverAnimationDuration + 0.15) {
