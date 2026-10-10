@@ -47,13 +47,16 @@ struct LanUploadPanel: View {
         }
         .padding(ui.s(20))
         .frame(width: ui.s(380))
-        .glassEffect(theme.glass, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        // 白天模式的 .clear 玻璃几乎全透，彩色封面透上来后小字看不清；
-        // 在玻璃之下垫一层深色底，保证任何主题 / 任何背景图下文字都有对比度。
+        // 跟设置面板一致：不透明底 + 描边 + 投影，随昼夜主题切换
         .background {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color.black.opacity(0.80))
+                .fill(theme.panelBackground)
         }
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(theme.hairline, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(theme.isDay ? 0.16 : 0.45), radius: 26, y: 10)
         .padding(.top, ui.s(60))
     }
 
@@ -92,7 +95,7 @@ struct LanUploadPanel: View {
             if let error = server.errorMessage {
                 Text(error)
                     .font(ui.fs(FB.caption))
-                    .foregroundStyle(Color(red: 1.0, green: 0.55, blue: 0.5))
+                    .foregroundStyle(theme.errorText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -198,7 +201,7 @@ struct LanUploadPanel: View {
             if let last = server.logs.first {
                 Text(last.text)
                     .font(ui.fs(FB.caption2))
-                    .foregroundStyle(last.isError ? Color(red: 1.0, green: 0.55, blue: 0.5) : theme.tertiaryText)
+                    .foregroundStyle(last.isError ? theme.errorText : theme.tertiaryText)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -236,6 +239,13 @@ struct LanUploadPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// 网卡选择行的边框色：浅色底用深色描边、深色底用浅色描边
+    private func borderColor(selected: Bool) -> Color {
+        theme.isDay
+            ? Color.black.opacity(selected ? 0.30 : 0.10)
+            : Color.white.opacity(selected ? 0.32 : 0.10)
+    }
+
     /// 网卡选择行：全部用主题色自绘，不碰系统控件配色
     private func addressRow(_ address: LanUploadServer.LanAddress) -> some View {
         let selected = (server.selectedAddress ?? server.addresses.first?.ip) == address.ip
@@ -253,7 +263,7 @@ struct LanUploadPanel: View {
         .background(theme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.white.opacity(selected ? 0.32 : 0.10), lineWidth: 0.5)
+                .stroke(borderColor(selected: selected), lineWidth: 0.5)
         }
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture { server.selectedAddress = address.ip }
@@ -271,7 +281,8 @@ struct LanUploadPanel: View {
             .padding(.vertical, ui.s(8))
         }
         .buttonStyle(.plain)
-        .glassEffect(in: Capsule())
+        .background(theme.fieldFill, in: Capsule())
+        .overlay { Capsule().stroke(theme.hairline, lineWidth: 1) }
     }
 
     private func ghostButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {

@@ -69,6 +69,11 @@ enum AppTheme {
         isDay ? .white : Color(red: 44.0 / 255.0, green: 44.0 / 255.0, blue: 46.0 / 255.0)
     }
 
+    /// 错误提示文字色：深色底用浅红，浅色底用深红
+    var errorText: Color {
+        isDay ? Color(red: 0.75, green: 0.13, blue: 0.10) : Color(red: 1.0, green: 0.55, blue: 0.5)
+    }
+
     var glass: Glass {
         isDay ? .clear : .regular
     }
@@ -357,6 +362,9 @@ struct ContentView: View {
             .background(windowBackgroundView)
         }
         .environment(\.theme, nightMode ? .night : .day)
+        // 让系统控件（开关 / 分段控件 / 文本框 / 滑块）跟随声潮自己的昼夜主题，
+        // 而不是跟随系统外观——否则夜间模式下系统按浅色渲染，分段控件文字是黑的
+        .environment(\.colorScheme, nightMode ? .dark : .light)
         .environment(\.uiScale, ui)
         // 最小窗口尺寸随档位放大：避免放大后窗口过小导致大封面/歌词被裁切
         .frame(minWidth: ui.s(1000), minHeight: ui.s(560))
@@ -1538,6 +1546,8 @@ struct SettingsView: View {
         }
         .padding(ui.s(8))
         .background(SettingsWindowConfigurator())
+        .environment(\.theme, nightMode ? .night : .day)
+        .environment(\.colorScheme, nightMode ? .dark : .light)
     }
 
     // 关闭按钮：与悬浮窗一致（红点 + x，鼠标靠近出现、远离消失）
@@ -1941,7 +1951,7 @@ struct AlbumGridView: View {
             .padding(ui.s(18))
             .scrollTargetLayout()
         }
-        .background(ScrollbarStyler())
+        .background(ScrollbarStyler(isDay: theme.isDay))
         .scrollPosition($position)
         .onChange(of: position.viewID(type: AlbumGroup.ID.self)) { _, newID in
             if let newID {
@@ -2211,7 +2221,7 @@ struct AlbumDetailView: View {
             }
             .padding(ui.s(18))
         }
-        .background(ScrollbarStyler())
+        .background(ScrollbarStyler(isDay: theme.isDay))
     }
 }
 
@@ -2450,7 +2460,7 @@ struct SongListView: View {
             .padding(ui.s(18))
             .scrollTargetLayout()
         }
-        .background(ScrollbarStyler())
+        .background(ScrollbarStyler(isDay: theme.isDay))
         .scrollPosition($position)
         .onChange(of: position.viewID(type: AudioTrack.ID.self)) { _, newID in
             if searchText.isEmpty, let newID {
@@ -2505,7 +2515,7 @@ struct RecentListView: View {
             }
             .padding(ui.s(18))
         }
-        .background(ScrollbarStyler())
+        .background(ScrollbarStyler(isDay: theme.isDay))
     }
 }
 
@@ -2598,7 +2608,7 @@ struct ArtistListView: View {
             }
             .padding(ui.s(18))
         }
-        .background(ScrollbarStyler())
+        .background(ScrollbarStyler(isDay: theme.isDay))
     }
 }
 
@@ -2641,7 +2651,7 @@ struct FavoritesView: View {
             }
             .padding(ui.s(18))
         }
-        .background(ScrollbarStyler())
+        .background(ScrollbarStyler(isDay: theme.isDay))
     }
 }
 
