@@ -603,6 +603,8 @@ final class AudioLibrary: ObservableObject {
     @Published var currentTime: Double = 0
     @Published var isScanning = false
     @Published var statusMessage = ""
+    /// 音乐目录的磁盘占用（字节），侧边栏「音乐目录」卡片显示；扫描完成后后台统计一次
+    @Published var libraryRootBytes: Int64 = 0
     @Published var warnings: [String] = []
     @Published var selectedAlbum: AlbumGroup?
     @Published var liveBitrate: Int?
@@ -648,6 +650,7 @@ final class AudioLibrary: ObservableObject {
            let decoded = try? JSONDecoder().decode([Playlist].self, from: data) {
             playlists = decoded
         }
+        restoreCachedRootSize()
         setupEngine()
         playerNode.volume = Float(volume)  // 恢复上次音量（didSet 在初始化时不触发）
     }
@@ -863,6 +866,38 @@ final class AudioLibrary: ObservableObject {
         guard FileManager.default.fileExists(atPath: first, isDirectory: &isDir),
               isDir.boolValue else { return nil }
         return URL(fileURLWithPath: first)
+    }
+
+    /// 侧边栏目录大小缓存（key 为根目录路径，value 为字节数）
+    private static let rootSizeCacheKey = "libraryRootSizeCache"
+
+    private static func loadRootSizeCache() -> [String: Int64] {
+        guard let raw = UserDefaults.standard.dictionary(forKey: rootSizeCacheKey) else { return [:] }
+        return raw.compactMapValues { ($0 as? NSNumber)?.int64Value }
+    }
+
+    /// 侧边栏首次显示时直接用上次缓存的大小，不重新遍历磁盘
+    func restoreCachedRootSize() {
+        guard let root = primaryLibraryRoot,
+              let bytes = Self.loadRootSizeCache()[root.path] else { return }
+        libraryRootBytes = bytes
+    }
+
+    /// 后台递归统计当前音乐目录的磁盘占用，结果写缓存供侧边栏直接读取
+    func refreshPrimaryRootSize() async {
+        guard let root = primaryLibraryRoot else {
+            libraryRootBytes = 0
+            return
+        }
+        let path = root.path
+        let bytes = await Task.detached(priority: .utility) {
+            Self.directoryAllocatedBytes(at: root)
+        }.value
+        guard primaryLibraryRoot?.path == path else { return }  // 目录已切换，丢弃过期结果
+        libraryRootBytes = bytes
+        var cache = Self.loadRootSizeCache()
+        cache[path] = bytes
+        UserDefaults.standard.set(cache.mapValues { NSNumber(value: $0) }, forKey: Self.rootSizeCacheKey)
     }
 
     /// 局域网上传完成后重新入库（增量：只重读新增/变化的文件）
@@ -1102,6 +1137,9 @@ final class AudioLibrary: ObservableObject {
 
         // 9. 汇总（不再追加「未发现遗漏」提示，顶栏只保留扫描结果汇总）
         statusMessage = "扫描完成：\(allTracks.count) 首 · \(sortedAlbums.count) 张专辑"
+
+        // 10. 侧边栏「音乐目录」占用大小：扫描收尾后后台统计一次并缓存
+        Task { await refreshPrimaryRootSize() }
     }
 
     /// 按分组 + 排序重建曲库视图，并设置播放队列
@@ -1244,6 +1282,26 @@ final class AudioLibrary: ObservableObject {
             }
         }
         return result
+    }
+
+    /// 递归统计目录下所有文件（含封面/lrc 等非音频文件与隐藏文件）占用的磁盘空间
+    private static nonisolated func directoryAllocatedBytes(at directory: URL) -> Int64 {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .totalFileAllocatedSizeKey,
+                                         .fileAllocatedSizeKey, .fileSizeKey]
+        guard let enumerator = FileManager.default.enumerator(at: directory,
+                                                              includingPropertiesForKeys: Array(keys),
+                                                              options: []) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { continue }
+            let bytes = values.totalFileAllocatedSize ?? values.fileAllocatedSize
+                ?? values.fileSize ?? 0
+            total += Int64(bytes)
+        }
+        return total
     }
 
     // 文件夹里的封面图路径（同目录 + 子目录如"封面"/"cover"/"Artwork"）

@@ -1646,6 +1646,12 @@ struct Sidebar: View {
         return (root.path as NSString).abbreviatingWithTildeInPath
     }
 
+    /// 目录占用大小文案（扫描完成后由曲库后台统计并缓存，未统计到时不显示）
+    private var libraryRootSizeText: String? {
+        guard libraryRoot != nil, library.libraryRootBytes > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: library.libraryRootBytes, countStyle: .file)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // 给窗口交通灯让位（全屏时标题栏高度为 0）
@@ -1702,17 +1708,29 @@ struct Sidebar: View {
                     Image(systemName: "folder")
                         .foregroundStyle(theme.primaryText)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(libraryRootName)
-                            .font(ui.fs(FB.footnote))
-                            .foregroundStyle(theme.primaryText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        HStack(spacing: ui.s(8)) {
+                            Text(libraryRootName)
+                                .font(ui.fs(FB.footnote))
+                                .foregroundStyle(theme.primaryText)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 0)
+                            if let size = libraryRootSizeText {
+                                Text(size)
+                                    .font(ui.fs(FB.caption))
+                                    .foregroundStyle(theme.secondaryText)
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .fixedSize()
+                            }
+                        }
                         Text(libraryRootPath)
                             .font(ui.fs(FB.caption2))
                             .foregroundStyle(theme.secondaryText)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     Spacer(minLength: 0)
                 }
                 .padding(ui.s(10))
