@@ -57,7 +57,11 @@ struct LanUploadPanel: View {
                 .stroke(theme.hairline, lineWidth: 1)
         }
         .shadow(color: .black.opacity(theme.isDay ? 0.16 : 0.45), radius: 26, y: 10)
-        .padding(.top, ui.s(60))
+        // 整体上移：原先 .padding(.top, 60) 在居中布局里等于把卡片往下压 30pt，
+        // 窗口不高时卡片底边会压住底部播放胶囊。改为在「底部控制栏以上」的区域里居中
+        // （控制栏高约 64pt：内容 40 + 上下 padding 6 + 底部留白 12），
+        // 即卡片中心比窗口中心高 32pt，相对原来上移约 62pt。
+        .padding(.bottom, ui.s(64))
     }
 
     private var header: some View {
