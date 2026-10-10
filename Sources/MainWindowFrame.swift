@@ -63,8 +63,8 @@ final class MainWindowFrame {
     }
 
     private func write() {
-        // 全屏时窗口铺满整块屏幕，记下来会覆盖掉窗口模式下的尺寸
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+        // 全屏（系统全屏 / 声潮自绘全屏）时窗口铺满整块屏幕，记下来会覆盖掉窗口模式下的尺寸
+        guard let window, !CustomFullScreen.isFullScreen(window) else { return }
         UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.key)
     }
 

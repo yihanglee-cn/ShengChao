@@ -37,6 +37,7 @@ swiftc -parse-as-library \
   Sources/Scrollbar.swift \
   Sources/UIScale.swift \
   Sources/MainWindowFrame.swift \
+  Sources/CustomFullScreen.swift \
   Sources/ContentView.swift \
   Sources/FloatingPlayerView.swift \
   Sources/SplashView.swift

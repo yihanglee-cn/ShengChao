@@ -533,11 +533,13 @@ struct ContentView: View {
         }
     }
 
-    // 拿到宿主窗口：除了切档位要按比例调窗口，这里还接管窗口尺寸 / 位置的记忆
+    // 拿到宿主窗口：除了切档位要按比例调窗口，这里还接管窗口尺寸 / 位置的记忆、
+    // 以及「绿色按钮 → 自绘全屏」（带刘海的内建屏上系统全屏会在顶端留一行黑边）
     private func bindHostWindow(_ window: NSWindow?) {
         hostWindow = window
         guard let window else { return }
         MainWindowFrame.shared.attach(to: window)
+        CustomFullScreen.shared.install(on: window)
     }
 
     // 切换界面缩放档位时，按倍率等比调整窗口尺寸（顶边锚定），
@@ -546,8 +548,8 @@ struct ContentView: View {
         let oldFactor = (UIScaleOption(rawValue: oldRaw) ?? .standard).factor
         let newFactor = (UIScaleOption(rawValue: newRaw) ?? .standard).factor
         guard oldFactor > 0, newFactor != oldFactor, let window = hostWindow else { return }
-        // 全屏状态下窗口铺满屏幕，不做等比调整
-        guard !window.styleMask.contains(.fullScreen) else { return }
+        // 全屏（系统全屏 / 自绘全屏）时窗口铺满屏幕，不做等比调整
+        guard !CustomFullScreen.isFullScreen(window) else { return }
 
         let ratio = newFactor / oldFactor
         let oldFrame = window.frame
