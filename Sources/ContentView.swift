@@ -1602,6 +1602,20 @@ struct Sidebar: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0.0"
     }
 
+    /// 当前曲库的第一个扫描根目录（声潮只扫用户选的那一个音乐文件夹）
+    private var libraryRoot: URL? { library.primaryLibraryRoot }
+
+    /// 目录名：取末级文件夹名
+    private var libraryRootName: String {
+        libraryRoot?.lastPathComponent ?? "未选择目录"
+    }
+
+    /// 目录路径：家目录缩写成 ~，过长时中间截断
+    private var libraryRootPath: String {
+        guard let root = libraryRoot else { return "点右上角「扫描音乐」选择文件夹" }
+        return (root.path as NSString).abbreviatingWithTildeInPath
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // 给窗口交通灯让位（全屏时标题栏高度为 0）
@@ -1674,27 +1688,32 @@ struct Sidebar: View {
             Spacer()
 
             VStack(alignment: .leading, spacing: ui.s(8)) {
-                Text("存储设备")
+                Text("音乐目录")
                     .font(ui.fs(FB.caption, .semibold))
                     .foregroundStyle(theme.secondaryText)
                 HStack(spacing: ui.s(8)) {
-                    Image(systemName: "internaldrive")
+                    Image(systemName: "folder")
                         .foregroundStyle(theme.primaryText)
                     VStack(alignment: .leading, spacing: 0) {
-                        Text("Macintosh HD")
+                        Text(libraryRootName)
                             .font(ui.fs(FB.footnote))
                             .foregroundStyle(theme.primaryText)
-                        Text("1.2 TB · 无损音乐库")
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(libraryRootPath)
                             .font(ui.fs(FB.caption2))
                             .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
                 .padding(ui.s(10))
                 .background {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(theme.fieldFill)
                 }
+                .help(libraryRootPath)
             }
             .padding(ui.s(14))
         }
