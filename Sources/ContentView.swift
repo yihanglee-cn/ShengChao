@@ -387,6 +387,7 @@ struct ContentView: View {
                 coverVisible = true
                 coverControlsVisible = false
                 showLyrics = true   // 打开播放页时自动显示歌词
+                releaseTextFieldFocus()   // 搜索框残留的焦点会让方向键 / 空格等全局快捷键失效
                 DispatchQueue.main.asyncAfter(deadline: .now() + coverAnimationDuration * 0.55) {
                     if showFullCover {
                         withAnimation(.easeOut(duration: 0.22)) {
@@ -426,8 +427,12 @@ struct ContentView: View {
                 
             }
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                // 文本输入框聚焦时不拦截，空格/方向键正常输入
-                if let fr = NSApp.keyWindow?.firstResponder,
+                // 文本输入框聚焦时不拦截，空格/方向键正常输入。
+                // 例外：搜索框点过一次就会一直霸着 first responder（SwiftUI 不会主动交还），
+                // 此时方向键调音量 / 空格 / 切歌 / L / Z 会集体失效；
+                // 播放页里没有任何输入框，所以播放页打开时不放行，按键一律交给快捷键。
+                if !showFullCover,
+                   let fr = NSApp.keyWindow?.firstResponder,
                    fr is NSTextView || fr is NSTextField {
                     return event
                 }
@@ -518,6 +523,16 @@ struct ContentView: View {
             frame.origin.y = min(max(frame.origin.y, visible.minY), max(visible.minY, visible.maxY - frame.height))
         }
         window.setFrame(frame, display: true, animate: false)
+    }
+
+    // 打开播放页时，把残留的文本框焦点交还窗口。
+    // 全局键盘监视器遇到 NSTextView/NSTextField 聚焦会放行所有按键（保证搜索框能正常输入），
+    // 但搜索框点过一次就会一直霸着 first responder，方向键调音量 / 空格 / 切歌 / L / Z 会集体失效。
+    private func releaseTextFieldFocus() {
+        guard let window = NSApp.keyWindow ?? hostWindow,
+              let responder = window.firstResponder,
+              responder is NSTextView || responder is NSTextField else { return }
+        window.makeFirstResponder(nil)
     }
 
     // 大封面界面：方向键调音量时在顶端显示音量胶囊，1.6s 后自动淡出
