@@ -1850,6 +1850,8 @@ struct MainArea: View {
                 ArtistListView(library: library)
             case "收藏":
                 FavoritesView(library: library)
+            case "排行榜":
+                RankingListView(library: library)
             case "播放列表":
                 PlaylistView(library: library)
             default:
@@ -2590,6 +2592,189 @@ struct RecentListView: View {
             .padding(ui.s(18))
         }
         .background(ScrollbarStyler(isDay: theme.isDay))
+    }
+}
+
+// MARK: - 排行榜
+
+/// 榜单只收「听过完整一遍」的曲目，按次数从多到少排；样式与歌曲列表一致，
+/// 只把原来的时长列换成完整播放次数。
+struct RankingListView: View {
+    @Environment(\.uiScale) private var ui
+    @ObservedObject var library: AudioLibrary
+    @AppStorage("nightMode") private var nightMode = true
+            private var theme: AppTheme { nightMode ? .night : .day }
+    @State private var searchText = ""
+
+    private var filteredTracks: [AudioTrack] {
+        let ranked = library.rankedTracks
+        guard !searchText.isEmpty else { return ranked }
+        return ranked.filter {
+            $0.title.localizedCaseInsensitiveContains(searchText) ||
+            $0.artist.localizedCaseInsensitiveContains(searchText) ||
+            $0.album.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: ui.s(16)) {
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("排行榜")
+                            .font(ui.fs(FB.largeTitle, .bold))
+                            .foregroundStyle(theme.primaryText)
+                        Text("\(library.rankedTracks.count) 首 · 按完整播放次数排序")
+                            .font(ui.fs(FB.subheadline))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    Spacer()
+                    HStack(spacing: ui.s(6)) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(theme.secondaryText)
+                        TextField("搜索榜单", text: $searchText)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(theme.primaryText)
+                    }
+                    .padding(.horizontal, ui.s(12))
+                    .frame(width: ui.s(220), height: ui.s(34))
+                    .glassEffect(in: Capsule())
+                }
+
+                if filteredTracks.isEmpty {
+                    VStack(spacing: ui.s(12)) {
+                        Image(systemName: "list.number")
+                            .font(ui.fs(40))
+                            .foregroundStyle(theme.tertiaryText)
+                        Text(searchText.isEmpty
+                             ? "还没有播放记录\n完整听完一首歌就会出现在榜单里"
+                             : "没有匹配的歌曲")
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, ui.s(60))
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filteredTracks) { track in
+                            RankingRow(track: track, library: library)
+                        }
+                    }
+                }
+            }
+            .padding(ui.s(18))
+        }
+        .background(ScrollbarStyler(isDay: theme.isDay))
+    }
+}
+
+// MARK: - 排行榜曲目行
+
+/// 与歌曲列表的 TrackRow 同款，只把时长列换成本曲的完整播放次数。
+struct RankingRow: View {
+    @Environment(\.uiScale) private var ui
+    let track: AudioTrack
+    @ObservedObject var library: AudioLibrary
+    @AppStorage("nightMode") private var nightMode = true
+            private var theme: AppTheme { nightMode ? .night : .day }
+    @State private var confirmDelete = false
+
+    var body: some View {
+        HStack(spacing: ui.s(8)) {
+            Button {
+                library.playTrack(track)
+            } label: {
+                HStack(spacing: ui.s(12)) {
+                    if let art = track.artworkThumbnail {
+                        Image(nsImage: art)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: ui.s(40), height: ui.s(40))
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    } else {
+                        Image(systemName: library.currentTrack?.id == track.id
+                              ? "speaker.wave.2.fill" : "music.note")
+                            .foregroundStyle(library.currentTrack?.id == track.id
+                                             ? theme.primaryText : theme.secondaryText)
+                            .frame(width: ui.s(40), height: ui.s(40))
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title)
+                            .font(ui.fs(FB.body))
+                            .foregroundStyle(theme.primaryText)
+                            .lineLimit(1)
+                        Text(track.artist)
+                            .font(ui.fs(FB.caption))
+                            .foregroundStyle(theme.secondaryText)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    // 码率（无损 FLAC / ALAC 会显示 1000+ kbps）
+                    Text(track.bitrateText ?? "—")
+                        .font(ui.fs(FB.caption).monospacedDigit())
+                        .foregroundStyle(theme.tertiaryText)
+                        .frame(width: ui.s(78), alignment: .trailing)
+                    Text("\(library.playCount(for: track)) 次")
+                        .font(ui.fs(FB.caption).monospacedDigit())
+                        .foregroundStyle(theme.secondaryText)
+                        .frame(width: ui.s(56), alignment: .trailing)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                library.toggleFavorite(track)
+            } label: {
+                Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
+                    .foregroundStyle(library.isFavorite(track) ? .red : theme.secondaryText)
+                    .frame(width: ui.s(24))
+            }
+            .buttonStyle(.plain)
+        }
+        // 分隔线从文字左边开始，跟封面错开（对齐歌曲列表样式）
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.hairline)
+                .frame(height: 1)
+                .padding(.leading, ui.s(52))
+        }
+        .padding(.horizontal, ui.s(14))
+        .padding(.vertical, ui.s(10))
+        .background {
+            if library.currentTrack?.id == track.id {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(theme.selectionFill)
+            }
+        }
+        .contextMenu {
+            if !library.playlists.isEmpty {
+                Menu("加入播放列表") {
+                    ForEach(library.playlists) { playlist in
+                        Button(playlist.name) {
+                            library.addToPlaylist(track, playlist)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button(role: .destructive) {
+                confirmDelete = true
+            } label: {
+                Label("永久删除", systemImage: "trash")
+            }
+        }
+        .confirmationDialog(
+            "确定要从磁盘永久删除《\(track.title)》？此操作不可恢复。",
+            isPresented: $confirmDelete,
+            titleVisibility: .visible
+        ) {
+            Button("永久删除", role: .destructive) {
+                library.removeTrackPermanently(track)
+            }
+            Button("取消", role: .cancel) {}
+        }
     }
 }
 

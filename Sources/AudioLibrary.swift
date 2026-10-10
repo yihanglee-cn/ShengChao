@@ -631,10 +631,15 @@ final class AudioLibrary: ObservableObject {
     @Published var favoriteKeys: Set<String> = []
     @Published var playlists: [Playlist] = []
     @Published var selectedPlaylist: Playlist?
+    /// 完整播放次数：key 与收藏/播放列表同构（url|offset），换机器换 id 也能对上
+    @Published var playCounts: [String: Int] = [:]
 
     init() {
         if let saved = UserDefaults.standard.stringArray(forKey: "favoriteTracks") {
             favoriteKeys = Set(saved)
+        }
+        if let saved = UserDefaults.standard.dictionary(forKey: "trackPlayCounts") {
+            playCounts = saved.compactMapValues { ($0 as? NSNumber)?.intValue }
         }
         if let data = UserDefaults.standard.data(forKey: "playlists"),
            let decoded = try? JSONDecoder().decode([Playlist].self, from: data) {
@@ -1679,6 +1684,8 @@ final class AudioLibrary: ObservableObject {
             }
         case "收藏":
             playQueue = favoriteTracks.isEmpty ? [track] : favoriteTracks
+        case "排行榜":
+            playQueue = rankedTracks.isEmpty ? [track] : rankedTracks
         default:
             if let album = albums.first(where: { $0.tracks.contains(where: { $0.id == track.id }) }) {
                 playQueue = album.tracks
@@ -1742,6 +1749,11 @@ final class AudioLibrary: ObservableObject {
     private func advanceOrStop() {
         // 设备切换期间禁止切歌（切换处理会重新调度当前歌曲）
         guard !isDeviceSwitching else { return }
+        // 能走到这里 = 本次调度的音频已全部播完（调度区间始终到本曲末尾），
+        // 记一次完整播放；切歌/暂停/删歌走的是作废旧会话，不会回调到这里
+        if let finished = currentTrack {
+            recordCompletedPlay(finished)
+        }
         if playbackMode == .one, let t = currentTrack {
             play(t)
             return
@@ -2110,6 +2122,32 @@ final class AudioLibrary: ObservableObject {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    // MARK: - 播放次数 / 排行榜
+
+    /// 该曲的完整播放次数
+    func playCount(for track: AudioTrack) -> Int {
+        playCounts[favoriteKey(for: track)] ?? 0
+    }
+
+    /// 排行榜：只收播完过的曲目，按次数从多到少排；次数相同保持曲库原有顺序
+    var rankedTracks: [AudioTrack] {
+        tracks.enumerated()
+            .compactMap { index, track -> (index: Int, count: Int, track: AudioTrack)? in
+                let count = playCounts[favoriteKey(for: track)] ?? 0
+                return count > 0 ? (index, count, track) : nil
+            }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.index < $1.index }
+            .map(\.track)
+    }
+
+    /// 一首歌播到结尾时记一次（切歌、暂停、删歌等中断都不算）
+    private func recordCompletedPlay(_ track: AudioTrack) {
+        guard track.duration > 0 else { return }
+        let key = favoriteKey(for: track)
+        playCounts[key, default: 0] += 1
+        UserDefaults.standard.set(playCounts, forKey: "trackPlayCounts")
+    }
+
     // MARK: - 收藏
 
     func favoriteKey(for track: AudioTrack) -> String {
@@ -2212,12 +2250,15 @@ final class AudioLibrary: ObservableObject {
             selectedAlbum = albums.first { $0.id == sa.id }
         }
 
-        // 5) 从播放队列、最近播放、收藏、播放列表移除所有引用
+        // 5) 从播放队列、最近播放、收藏、播放列表、播放次数移除所有引用
         playQueue.removeAll { favoriteKey(for: $0) == key }
         recentTracks.removeAll { favoriteKey(for: $0) == key }
         if favoriteKeys.contains(key) {
             favoriteKeys.remove(key)
             UserDefaults.standard.set(Array(favoriteKeys), forKey: "favoriteTracks")
+        }
+        if playCounts.removeValue(forKey: key) != nil {
+            UserDefaults.standard.set(playCounts, forKey: "trackPlayCounts")
         }
         for i in playlists.indices {
             playlists[i].trackKeys.removeAll { $0 == key }

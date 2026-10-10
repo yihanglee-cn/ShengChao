@@ -47,6 +47,7 @@ let sidebarItems: [(name: String, icon: String)] = [
     ("专辑", "square.stack"),
     ("艺术家", "person.2"),
     ("收藏", "heart"),
+    ("排行榜", "list.number"),
     ("播放列表", "list.bullet"),
 ]
 
