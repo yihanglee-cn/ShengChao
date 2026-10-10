@@ -3,16 +3,19 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="声潮"
-VERSION="1.2.2.0"
-DMG_BASE="ShengChao-${VERSION}"
 VOL_NAME="${APP_NAME}"
 STAGING="build/dmg-staging"
 RW_DMG="build/rw.dmg"
-FINAL_DMG="build/${DMG_BASE}.dmg"
 BG_IMG="build/dmg-background.png"
 
 echo "==> 确保 app 已构建"
 [ -d "build/${APP_NAME}.app" ] || ./build.sh
+
+# 版本号唯一来源：根目录 Info.plist → 已编译进 app 的那份（此处不再另写版本号）
+VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "build/${APP_NAME}.app/Contents/Info.plist")"
+DMG_BASE="ShengChao-${VERSION}"
+FINAL_DMG="build/${DMG_BASE}.dmg"
+echo "==> 版本号 ${VERSION}（来自 build/${APP_NAME}.app）"
 
 echo "==> 生成 DMG 背景图"
 python3 - "${BG_IMG}" "${VERSION}" <<'PY'

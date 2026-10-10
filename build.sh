@@ -11,6 +11,10 @@ BUNDLE="build/${APP_NAME}.app"
 EXEC_NAME="LiquidGlassPlayer"
 SDK="$(xcrun --show-sdk-path --sdk macosx)"
 TARGET="arm64-apple-macosx26.0"
+# 版本号唯一来源：根目录 Info.plist 的 CFBundleShortVersionString。
+# 这里不再另写版本号，make_dmg.sh 也从构建出的 app 里读同一份。
+VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)"
+echo "==> 版本号 ${VERSION}（来自 Info.plist）"
 
 echo "==> 清理旧构建"
 rm -rf build
@@ -69,7 +73,7 @@ sips -z 1024 1024 build/icon_1024.png --out "${ICONSET}/icon_512x512@2x.png" >/d
 iconutil -c icns "${ICONSET}" -o "${BUNDLE}/Contents/Resources/AppIcon.icns"
 
 echo "==> 写入 Info.plist"
-cat > "${BUNDLE}/Contents/Info.plist" <<'PLIST'
+cat > "${BUNDLE}/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -87,9 +91,9 @@ cat > "${BUNDLE}/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.2.2.0</string>
+    <string>${VERSION}</string>
     <key>CFBundleVersion</key>
-    <string>1.2.2.0</string>
+    <string>${VERSION}</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
     <key>NSHighResolutionCapable</key>

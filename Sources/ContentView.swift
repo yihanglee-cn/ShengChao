@@ -1314,7 +1314,7 @@ struct SettingsPanel: View {
             private var theme: AppTheme { nightMode ? .night : .day }
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
 
     var body: some View {
