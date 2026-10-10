@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 // MARK: - 自绘全屏（传统全屏）
 
@@ -20,11 +21,23 @@ import AppKit
 /// 窗口保持 `.titled`（标题栏透明 + 内容铺满，SwiftUI 的 hiddenTitleBar 就是这样）：
 /// AppKit 里非 titled 窗口的 canBecomeKey 是 false（本机实测），那样一旦窗口失去焦点
 /// 就再也拿不回键盘，播放器最要紧的空格键会直接失效。
-final class CustomFullScreen {
+///
+/// 四角缺口：titled 窗口由系统画成圆角（AppKit 没有公开的圆角接口，抹图层 cornerRadius
+/// 也没用——本机实测），屏幕是直角时四个角就会露出后面的桌面。做法是把窗口铺成
+/// 「屏幕外扩 overscan 的一圈」，让窗口自己的圆角（连同红绿灯）落到屏幕外面去；
+/// 多出来的那一圈对 App 不可见，界面按 overscan 内缩同样的距离，可见布局仍与屏幕严丝合缝。
+/// 本机截图实测：外扩后四角覆盖率 100%，且 canBecomeKey 仍为 true。
+final class CustomFullScreen: ObservableObject {
     static let shared = CustomFullScreen()
+
+    /// 屏幕外扩的一圈（点）。要大于系统给窗口的圆角半径（本机实测约 18pt），取 24 留余量。
+    private static let overscanAmount: CGFloat = 24
 
     /// 当前是否处于自绘全屏。窗口尺寸 / 位置记忆要据此跳过全屏帧，否则会把铺满屏幕的矩形记成窗口尺寸。
     private(set) var isActive = false
+
+    /// 全屏时界面要内缩的距离（外面那一圈在屏幕外，见类型注释）。ContentView 用它做 padding。
+    @Published private(set) var overscan: CGFloat = 0
 
     private weak var window: NSWindow?
     private var savedFrame: NSRect = .zero
@@ -41,6 +54,14 @@ final class CustomFullScreen {
     /// 窗口当前是否处于全屏：系统原生全屏（别处窗口仍可能用）或声潮自绘全屏
     static func isFullScreen(_ window: NSWindow) -> Bool {
         window.styleMask.contains(.fullScreen) || shared.isActive
+    }
+
+    /// 自绘全屏时窗口该占的矩形：屏幕四周各外扩一圈
+    private func fullScreenFrame(for screen: NSScreen) -> NSRect {
+        let frame = screen.frame
+        let over = Self.overscanAmount
+        return NSRect(x: frame.minX - over, y: frame.minY - over,
+                      width: frame.width + over * 2, height: frame.height + over * 2)
     }
 
     // MARK: - 接管主窗口
@@ -73,16 +94,23 @@ final class CustomFullScreen {
         toggle(sender.window ?? window)
     }
 
-    /// ⌃⌘F：系统全屏的标准快捷键，这里也指向自绘全屏（绿按钮那条路万一没接上时的兜底入口）
+    /// ⌃⌘F（系统全屏的标准快捷键）与 Esc 都指向自绘全屏的开关。
+    /// 全屏时窗口比屏幕大一圈，红绿灯被推到屏幕外（也显式隐藏了），这两个快捷键就是出口。
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self,
-                  event.keyCode == 3,                       // F
-                  event.modifierFlags.contains(.control),
-                  event.modifierFlags.contains(.command) else { return event }
-            self.toggle(self.window)
-            return nil
+            guard let self else { return event }
+            if event.keyCode == 3,                                   // F（⌃⌘F）
+               event.modifierFlags.contains(.control),
+               event.modifierFlags.contains(.command) {
+                self.toggle(self.window)
+                return nil
+            }
+            if event.keyCode == 53, self.isActive {                  // Esc：退出自绘全屏
+                self.exit()
+                return nil
+            }
+            return event
         }
     }
 
@@ -126,38 +154,49 @@ final class CustomFullScreen {
         savedMovable = window.isMovable
         isActive = true
         bypassLogged = false
+        overscan = Self.overscanAmount          // 界面整体内缩，让可见布局仍与屏幕严丝合缝
 
         setFrameConstraintBypass(true)
         NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
         window.isMovable = false
-        window.setFrame(screen.frame, display: true)
+        setTrafficLights(hidden: true, in: window)
+        let target = fullScreenFrame(for: screen)
+        window.setFrame(target, display: true)
         window.makeKeyAndOrderFront(nil)
         hookZoomButton(on: window)
         startObserving()
-        log("进入自绘全屏 目标=\(fmt(screen.frame)) 实际=\(fmt(window.frame)) presentation=\(NSApp.presentationOptions.rawValue) isKey=\(window.isKeyWindow) \(describe(screen))")
+        log("进入自绘全屏 目标=\(fmt(target)) 实际=\(fmt(window.frame)) presentation=\(NSApp.presentationOptions.rawValue) isKey=\(window.isKeyWindow) \(describe(screen))")
 
         // 系统可能在这一拍之后又把窗口顶下来（刘海安全区），补一次并留痕
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self, weak window] in
             guard let self, let window, self.isActive else { return }
-            let target = window.screen ?? screen
-            guard window.frame != target.frame else { return }
+            guard window.frame != self.fullScreenFrame(for: window.screen ?? screen) else { return }
             self.log("0.2s 后窗口被挪动：\(fmt(window.frame))，补一次")
-            self.reassertFrame(window, to: target)
+            self.reassertFrame(window, to: window.screen ?? screen)
         }
     }
 
     private func exit() {
         guard isActive, let window else { return }
         isActive = false
+        overscan = 0
         setFrameConstraintBypass(false)
         stopObserving()
 
         NSApp.presentationOptions = savedPresentationOptions
         window.isMovable = savedMovable
+        setTrafficLights(hidden: false, in: window)
         let target = restoredFrame()
         window.setFrame(target, display: true)
         hookZoomButton(on: window)
         log("退出自绘全屏 目标=\(fmt(target)) 实际=\(fmt(window.frame)) presentation=\(NSApp.presentationOptions.rawValue)")
+    }
+
+    /// 全屏时窗口把红绿灯推到屏幕外了，这里再显式隐藏，免得万一被谁挪回来还能点到
+    private func setTrafficLights(hidden: Bool, in window: NSWindow) {
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(type)?.isHidden = hidden
+        }
     }
 
     /// 退出时回到进入前的矩形；期间若换过显示器 / 改过分辨率，按可见区域钳制回来
@@ -198,11 +237,12 @@ final class CustomFullScreen {
         observers.removeAll()
     }
 
-    /// 全屏期间窗口必须始终铺满当前屏幕：被系统顶下来、被误拖 / 误缩放都拉回来
+    /// 全屏期间窗口必须始终铺满当前屏幕（外扩一圈的矩形）：被系统顶下来、被误拖 / 误缩放都拉回来
     private func reassertFrame(_ window: NSWindow, to screen: NSScreen) {
-        guard !isReassertingFrame, window.frame != screen.frame else { return }
+        let target = fullScreenFrame(for: screen)
+        guard !isReassertingFrame, window.frame != target else { return }
         isReassertingFrame = true
-        window.setFrame(screen.frame, display: true)
+        window.setFrame(target, display: true)
         isReassertingFrame = false
     }
 

@@ -307,6 +307,8 @@ struct ContentView: View {
     @State private var hostWindow: NSWindow?
     @State private var showSettings = false
     @State private var showUpload = false
+    /// 自绘全屏时窗口比屏幕大一圈（把窗口自带圆角推到屏幕外），界面要按 overscan 内缩回来
+    @ObservedObject private var fullScreen = CustomFullScreen.shared
 
     /// 界面缩放档位。
     /// 这里用局部计算属性而非 @Environment：本视图是缩放环境的**提供者**，
@@ -379,6 +381,9 @@ struct ContentView: View {
             }
             .background(windowBackgroundView)
         }
+        // 自绘全屏时窗口比屏幕大一圈（窗口自带圆角因此在屏幕外，屏幕四角不再露出桌面），
+        // 界面按同样的距离内缩：外圈留在屏幕外看不见，可见布局仍与屏幕严丝合缝。
+        .padding(fullScreen.overscan)
         .environment(\.theme, nightMode ? .night : .day)
         // 让系统控件（开关 / 分段控件 / 文本框 / 滑块）跟随声潮自己的昼夜主题，
         // 而不是跟随系统外观——否则夜间模式下系统按浅色渲染，分段控件文字是黑的
