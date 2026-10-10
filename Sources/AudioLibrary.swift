@@ -618,6 +618,9 @@ final class AudioLibrary: ObservableObject {
         }
     }
     @Published var playQueue: [AudioTrack] = []
+    /// 当前播放队列所属专辑（只有从专辑开始播放时才有值）。
+    /// 用途：循环关模式下整张专辑播完后自动接专辑列表里的下一张。
+    private var queueAlbumID: UUID?
     enum PlaybackMode: String { case off, all, one, shuffle }
     @Published var playbackMode: PlaybackMode = {
         if let s = UserDefaults.standard.string(forKey: "playbackMode"),
@@ -1124,6 +1127,7 @@ final class AudioLibrary: ObservableObject {
             return Self.trackBefore($0, $1)
         }
         playQueue = tracks
+        queueAlbumID = nil
         selectedAlbum = nil
         return sortedAlbums
     }
@@ -1665,6 +1669,7 @@ final class AudioLibrary: ObservableObject {
 
     func playAlbum(_ album: AlbumGroup, startingTrack: AudioTrack? = nil) {
         playQueue = album.tracks
+        queueAlbumID = album.id
         let first = startingTrack ?? album.tracks.first
         if let t = first { play(t) }
     }
@@ -1676,7 +1681,9 @@ final class AudioLibrary: ObservableObject {
         switch activeSidebar {
         case "歌曲":
             playQueue = tracks
+            queueAlbumID = nil
         case "播放列表":
+            queueAlbumID = nil
             if let pl = selectedPlaylist {
                 playQueue = tracks(in: pl)
             } else {
@@ -1684,16 +1691,38 @@ final class AudioLibrary: ObservableObject {
             }
         case "收藏":
             playQueue = favoriteTracks.isEmpty ? [track] : favoriteTracks
+            queueAlbumID = nil
         case "排行榜":
             playQueue = rankedTracks.isEmpty ? [track] : rankedTracks
+            queueAlbumID = nil
         default:
             if let album = albums.first(where: { $0.tracks.contains(where: { $0.id == track.id }) }) {
                 playQueue = album.tracks
+                queueAlbumID = album.id
             } else {
                 playQueue = [track]
+                queueAlbumID = nil
             }
         }
         play(track)
+    }
+
+    /// 队列所属专辑在专辑列表里的下一张（最后一张接回第一张）。
+    /// 队列不是专辑队列（歌曲/收藏/播放列表/排行榜）时返回 nil。
+    private func nextAlbumInLibrary() -> AlbumGroup? {
+        guard !albums.isEmpty,
+              let queueAlbumID,
+              let idx = albums.firstIndex(where: { $0.id == queueAlbumID }) else { return nil }
+        return albums[(idx + 1) % albums.count]
+    }
+
+    /// 循环关模式下队列来自专辑且整张播完：自动接下一张专辑。
+    /// 其余情况返回 false，调用方按原逻辑处理（暂停）。
+    @discardableResult
+    private func playNextAlbumIfNeeded() -> Bool {
+        guard playbackMode == .off, let next = nextAlbumInLibrary() else { return false }
+        playAlbum(next)
+        return true
     }
 
     func next() {
@@ -1715,6 +1744,8 @@ final class AudioLibrary: ObservableObject {
             play(playQueue[idx + 1])
         } else if playbackMode == .all {
             play(playQueue[0])
+        } else {
+            playNextAlbumIfNeeded()
         }
     }
 
@@ -1743,7 +1774,9 @@ final class AudioLibrary: ObservableObject {
         if playbackMode == .all { return true }
         guard let current = currentTrack,
               let idx = playQueue.firstIndex(where: { $0.id == current.id }) else { return false }
-        return idx + 1 < playQueue.count
+        if idx + 1 < playQueue.count { return true }
+        // 整张专辑的最后一首：循环关模式下还能接下一张专辑
+        return playbackMode == .off && nextAlbumInLibrary() != nil
     }
 
     private func advanceOrStop() {
