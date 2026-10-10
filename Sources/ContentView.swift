@@ -2731,8 +2731,8 @@ struct NowPlayingBar: View {
                                      size: 28)
                     }
                 }
-                .frame(width: ui.s(54), height: ui.s(54))
-                .clipShape(RoundedRectangle(cornerRadius: ui.s(10), style: .continuous))
+                .frame(width: ui.s(40), height: ui.s(40))
+                .clipShape(RoundedRectangle(cornerRadius: ui.s(8), style: .continuous))
                     .opacity(coverVisible ? 0 : 1)  // 大封面激活期间隐藏小封面（关闭动画结束后再现）
                     .animation(nil, value: coverVisible)
                     .background(GeometryReader { g in
@@ -2777,25 +2777,25 @@ struct NowPlayingBar: View {
                 }
                 .lineLimit(1)
             }
-            .frame(width: ui.s(240), alignment: .leading)
+            .frame(width: ui.s(175), alignment: .leading)
 
             // 中栏：播放控制（固定中央，圆形液态玻璃）
-            HStack(spacing: ui.s(18)) {
+            HStack(spacing: ui.s(8)) {
                 Button { library.cyclePlaybackMode() } label: {
                     Image(systemName: library.playbackMode == .one ? "repeat.1" :
                                           library.playbackMode == .shuffle ? "shuffle" : "repeat")
-                        .font(ui.fs(16, .semibold))
+                        .font(ui.fs(13, .semibold))
                         .foregroundStyle(library.playbackMode == .off ? theme.tertiaryText : theme.primaryText)
-                        .frame(width: ui.s(40), height: ui.s(40))
+                        .frame(width: ui.s(28), height: ui.s(28))
                         .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
 
                 Button { library.previous() } label: {
                     Image(systemName: "backward.fill")
-                        .font(ui.fs(FB.title2, .semibold))
+                        .font(ui.fs(14, .semibold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: ui.s(48), height: ui.s(48))
+                        .frame(width: ui.s(30), height: ui.s(30))
                         .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
@@ -2803,9 +2803,9 @@ struct NowPlayingBar: View {
 
                 Button { library.togglePlay() } label: {
                     Image(systemName: library.isPlaying ? "pause.fill" : "play.fill")
-                        .font(ui.fs(FB.title, .bold))
+                        .font(ui.fs(17, .bold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: ui.s(62), height: ui.s(62))
+                        .frame(width: ui.s(36), height: ui.s(36))
                         .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
@@ -2813,9 +2813,9 @@ struct NowPlayingBar: View {
 
                 Button { library.next() } label: {
                     Image(systemName: "forward.fill")
-                        .font(ui.fs(FB.title2, .semibold))
+                        .font(ui.fs(14, .semibold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: ui.s(48), height: ui.s(48))
+                        .frame(width: ui.s(30), height: ui.s(30))
                         .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
@@ -2827,15 +2827,15 @@ struct NowPlayingBar: View {
                     }
                 } label: {
                     Image(systemName: library.currentTrack.map { library.isFavorite($0) } == true ? "heart.fill" : "heart")
-                        .font(ui.fs(17, .semibold))
+                        .font(ui.fs(14, .semibold))
                         .foregroundStyle(library.currentTrack.map { library.isFavorite($0) } == true ? .red : theme.primaryText)
-                        .frame(width: ui.s(40), height: ui.s(40))
+                        .frame(width: ui.s(28), height: ui.s(28))
                         .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.currentTrack == nil)
             }
-            .frame(width: ui.s(315))
+            .frame(width: ui.s(188))
 
             // 右栏：进度（可拖动） + 音量
             HStack(spacing: ui.s(14)) {
@@ -2859,7 +2859,7 @@ struct NowPlayingBar: View {
                                 library.seek(to: seekPosition)
                             }
                         })
-                        .frame(width: ui.s(110))
+                        .frame(width: ui.s(84))
                         .tint(theme.primaryText.opacity(0.75))
                     }
                     .animation(.easeInOut(duration: 0.15), value: isDragging)
@@ -2884,13 +2884,13 @@ struct NowPlayingBar: View {
                         Slider(value: $library.volume, in: 0...1, onEditingChanged: { editing in
                             isVolumeDragging = editing
                         })
-                        .frame(width: ui.s(64))
+                        .frame(width: ui.s(48))
                         .tint(theme.primaryText.opacity(0.75))
                     }
                     .animation(.easeInOut(duration: 0.15), value: isVolumeDragging)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: ui.s(250), alignment: .trailing)
             .onChange(of: library.currentTime) { t in
                 if !isDragging {
                     seekPosition = t
@@ -2901,9 +2901,13 @@ struct NowPlayingBar: View {
         .onTapGesture {
             openFullCover()
         }
-        .padding(.horizontal, ui.s(16))
-        .padding(.vertical, ui.s(10))
-        .frame(maxWidth: ui.s(880))
+        .padding(.horizontal, ui.s(14))
+        .padding(.vertical, ui.s(6))
+        .frame(maxWidth: ui.s(700))
+        // 垫一层近乎不透明的填充，避免歌单文字从玻璃里透上来
+        .background {
+            Capsule().fill(theme.isDay ? Color.white.opacity(0.74) : Color.white.opacity(0.08))
+        }
         .glassEffect(theme.glass, in: Capsule())
     }
 
