@@ -1161,9 +1161,20 @@ struct TopBar: View {
     @AppStorage("nightMode") private var nightMode = true
     private var theme: AppTheme { nightMode ? .night : .day }
 
+    /// 右上角一排控件（上传 / 扫描音乐 / 日夜切换 / 设置）的统一高度。
+    /// 原先前三个各自带内边距、设置按钮由系统玻璃样式定高，四个高矮不一；
+    /// 这里统一到设置按钮的高度（「电视」档下 36pt），四个控件完全等高。
+    private var controlHeight: CGFloat { ui.s(24) }
+
+    /// 日夜切换的内圈图标框：整排高度减掉胶囊自身上下各 ui.s(2) 的内边距
+    private var toggleIconBox: CGFloat { controlHeight - ui.s(2) * 2 }
+
+    /// 玻璃按钮样式自带的上下内边距（固定 12pt，不随界面缩放变化）
+    private let glassButtonChrome: CGFloat = 12
+
     var body: some View {
         HStack(spacing: ui.s(12)) {
-            // 当前分区标题（品牌行已移入侧边栏顶部）
+            // 当前分区标题（左上角已无品牌行）
             Text(selectedSection)
                 .font(ui.fs(FB.title3, .semibold))
                 .foregroundStyle(theme.primaryText)
@@ -1202,7 +1213,7 @@ struct TopBar: View {
                     Text("上传")
                 }
                 .padding(.horizontal, ui.s(14))
-                .padding(.vertical, ui.s(7))
+                .frame(height: controlHeight)
                 .glassEffect(in: Capsule())
                 .contentShape(Capsule())
                 .onTapGesture {
@@ -1218,7 +1229,7 @@ struct TopBar: View {
                     Text("扫描音乐")
                 }
                 .padding(.horizontal, ui.s(14))
-                .padding(.vertical, ui.s(7))
+                .frame(height: controlHeight)
                 .glassEffect(in: Capsule())
                 .contentShape(Capsule())
                 .onTapGesture {
@@ -1235,7 +1246,7 @@ struct TopBar: View {
                         Image(systemName: "sun.max.fill")
                             .font(ui.fs(13, .semibold))
                             .foregroundStyle(nightMode ? theme.secondaryText : theme.primaryText)
-                            .frame(width: ui.s(30), height: ui.s(30))
+                            .frame(width: toggleIconBox, height: toggleIconBox)
                             .background {
                                 if !nightMode {
                                     Capsule().fill(theme.selectionFill)
@@ -1244,7 +1255,7 @@ struct TopBar: View {
                         Image(systemName: "moon.fill")
                             .font(ui.fs(13, .semibold))
                             .foregroundStyle(nightMode ? theme.primaryText : theme.secondaryText)
-                            .frame(width: ui.s(30), height: ui.s(30))
+                            .frame(width: toggleIconBox, height: toggleIconBox)
                             .background {
                                 if nightMode {
                                     Capsule().fill(theme.selectionFill)
@@ -1264,6 +1275,9 @@ struct TopBar: View {
                 } label: {
                     Image(systemName: "gearshape")
                         .font(ui.fs(13, .medium))
+                        // 玻璃按钮样式自带上下内边距，图标框减掉它才能跟其它控件等高
+                        .frame(width: controlHeight - glassButtonChrome,
+                               height: controlHeight - glassButtonChrome)
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -1293,6 +1307,10 @@ struct SettingsPanel: View {
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
     @State private var hoveringClose = false
             private var theme: AppTheme { nightMode ? .night : .day }
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0.0"
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -1356,6 +1374,12 @@ struct SettingsPanel: View {
 
                 // 行 4：界面缩放（接电视远距离观看时调大）
                 UIScalePickerRow()
+
+                // 行 5：版本号（原来在侧边栏点「声潮」logo 查看，logo 去掉后常驻在这里）
+                Text("声潮 \(appVersion)")
+                    .font(ui.fs(FB.caption))
+                    .foregroundStyle(theme.tertiaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding(ui.s(20))
             .frame(width: ui.s(300))
@@ -1602,11 +1626,6 @@ struct Sidebar: View {
     @State private var playlistsExpanded = false
     @State private var showNewPlaylistAlert = false
     @State private var newPlaylistName = ""
-    @State private var showVersion = false
-
-    private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0.0"
-    }
 
     /// 当前曲库的第一个扫描根目录（声潮只扫用户选的那一个音乐文件夹）
     private var libraryRoot: URL? { library.primaryLibraryRoot }
@@ -1628,68 +1647,45 @@ struct Sidebar: View {
             Color.clear
                 .frame(height: WindowMetrics.titlebarHeight)
 
-            // 品牌行：只保留中文「声潮」，点一下看版本
-            Button {
-                showVersion.toggle()
-            } label: {
-                HStack(spacing: ui.s(7)) {
-                    Image(systemName: "waveform")
-                        .font(ui.fs(FB.title2, .semibold))
-                        .foregroundStyle(theme.accent)
-                    Text("声潮")
-                        .font(ui.fs(FB.title2, .semibold))
-                        .foregroundStyle(theme.primaryText)
-                }
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, ui.s(16))
-            .padding(.top, ui.s(2))
-            .padding(.bottom, ui.s(4))
-            .popover(isPresented: $showVersion, arrowEdge: .top) {
-                HStack(spacing: ui.s(8)) {
-                    Text("声潮")
-                        .font(ui.fs(FB.headline, .semibold))
-                    Text("版本 \(appVersion)")
-                        .font(ui.fs(FB.subheadline))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(ui.s(14))
-            }
-
-            ForEach(sidebarItems, id: \.name) { item in
-                if item.name == "播放列表" {
-                    playlistItem(item)
-                    if playlistsExpanded {
-                        playlistSubItems
-                    }
-                } else {
-                    Button {
-                        selected = item.name
-                        library.activeSidebar = item.name
-                    } label: {
-                        HStack(spacing: ui.s(10)) {
-                            Image(systemName: item.icon)
-                                .frame(width: ui.s(20))
-                                .foregroundStyle(theme.accent)
-                            Text(item.name)
-                            Spacer()
+            // 品牌行已去掉（左上角不再显示 logo 与「声潮」文字，版本号移到设置面板底部）
+            // 导航项往下让一点，避免顶着标题栏
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(sidebarItems, id: \.name) { item in
+                    if item.name == "播放列表" {
+                        playlistItem(item)
+                        if playlistsExpanded {
+                            playlistSubItems
                         }
-                        .font(ui.fs(FB.body))
-                        .foregroundStyle(selected == item.name ? theme.primaryText : theme.secondaryText)
-                        .padding(.horizontal, ui.s(16))
-                        .padding(.vertical, ui.s(9))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .background {
-                            if selected == item.name {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(theme.selectionFill)
+                    } else {
+                        Button {
+                            selected = item.name
+                            library.activeSidebar = item.name
+                        } label: {
+                            HStack(spacing: ui.s(10)) {
+                                Image(systemName: item.icon)
+                                    .frame(width: ui.s(20))
+                                    .foregroundStyle(theme.accent)
+                                Text(item.name)
+                                Spacer()
+                            }
+                            .font(ui.fs(FB.body))
+                            .foregroundStyle(selected == item.name ? theme.primaryText : theme.secondaryText)
+                            .padding(.horizontal, ui.s(16))
+                            .padding(.vertical, ui.s(9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .background {
+                                if selected == item.name {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .fill(theme.selectionFill)
+                                }
                             }
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
+            .padding(.top, ui.s(6))
 
             Spacer()
 
