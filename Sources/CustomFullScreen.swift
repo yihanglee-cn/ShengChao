@@ -11,11 +11,15 @@ import AppKit
 ///   · 菜单栏与 Dock 改成自动隐藏（鼠标移到屏幕顶端 / 底端仍能唤出）
 ///   · 窗口铺成整块 screen.frame（不是 visibleFrame），刘海左右两侧因此都能用上
 ///
-/// 刘海本体是摄像头，物理上没有像素：顶栏中间本来就留空，左右两簇内容不会被挡。
+/// 还有个坑：带刘海的内建屏上，AppKit 会把「带标题栏窗口」的顶边压到摄像头那一行之下
+/// （`NSWindow.constrainFrameRect(_:toScreen:)` 的默认实现把刘海那一行当安全区，
+/// 本机实测：titled 窗口 setFrame 会被压回 visibleFrame，非 titled 窗口才放行）。
+/// Apple 文档写明「子类可以覆写该方法来取消约束」，但 SwiftUI 的窗口不是我们的子类，
+/// 所以在自绘全屏期间临时替换 NSWindow 的该方法实现，只对声潮主窗口放行（见下方）。
 ///
 /// 窗口保持 `.titled`（标题栏透明 + 内容铺满，SwiftUI 的 hiddenTitleBar 就是这样）：
-/// AppKit 里 borderless 窗口的 canBecomeKey 是 false，切成 borderless 后键盘事件就收不到了，
-/// 所以不能照搬「全屏时把窗口变 borderless」那套做法。
+/// AppKit 里非 titled 窗口的 canBecomeKey 是 false（本机实测），那样一旦窗口失去焦点
+/// 就再也拿不回键盘，播放器最要紧的空格键会直接失效。
 final class CustomFullScreen {
     static let shared = CustomFullScreen()
 
@@ -25,8 +29,12 @@ final class CustomFullScreen {
     private weak var window: NSWindow?
     private var savedFrame: NSRect = .zero
     private var savedPresentationOptions: NSApplication.PresentationOptions = []
+    private var savedMovable = true
     private var keyMonitor: Any?
-    private var screenObserver: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    private var bypassInstalled = false
+    private var bypassLogged = false
+    private var isReassertingFrame = false
 
     private init() {}
 
@@ -44,6 +52,7 @@ final class CustomFullScreen {
         disableNativeFullScreen(on: window)
         hookZoomButton(on: window)
         installKeyMonitor()
+        log("接管窗口 frame=\(fmt(window.frame)) styleMask=\(window.styleMask.rawValue) collectionBehavior=\(window.collectionBehavior.rawValue) 屏幕=\(describe(window.screen))")
     }
 
     /// 去掉原生全屏：否则 ⌃⌘F / 菜单里的「进入全屏」会绕过这里，又走回系统全屏、顶端照样留黑边
@@ -60,6 +69,7 @@ final class CustomFullScreen {
     }
 
     @objc private func zoomButtonClicked(_ sender: NSButton) {
+        log("绿按钮被点击")
         toggle(sender.window ?? window)
     }
 
@@ -74,6 +84,28 @@ final class CustomFullScreen {
             self.toggle(self.window)
             return nil
         }
+    }
+
+    // MARK: - 解除刘海屏对窗口顶边的约束
+
+    /// 只对「声潮主窗口 + 自绘全屏进行中」放行，其它窗口 / 其它时候原样交给系统实现
+    fileprivate func shouldBypassFrameConstraint(for window: NSWindow) -> Bool {
+        guard isActive, window === self.window else { return false }
+        if !bypassLogged {
+            bypassLogged = true
+            log("constrainFrameRect 已放行：\(fmt(window.frame))")
+        }
+        return true
+    }
+
+    /// 临时替换 NSWindow 的 constrainFrameRect 实现（进入时装上、退出时还原），
+    /// 换掉之后我们的实现里再调同名方法就是原来的系统实现
+    private func setFrameConstraintBypass(_ enabled: Bool) {
+        guard enabled != bypassInstalled,
+              let original = class_getInstanceMethod(NSWindow.self, #selector(NSWindow.constrainFrameRect(_:to:))),
+              let replacement = class_getInstanceMethod(NSWindow.self, #selector(NSWindow.sc_constrainFrameRect(_:to:))) else { return }
+        method_exchangeImplementations(original, replacement)
+        bypassInstalled = enabled
     }
 
     // MARK: - 进入 / 退出
@@ -91,23 +123,41 @@ final class CustomFullScreen {
         guard let screen = window.screen ?? NSScreen.main else { return }
         savedFrame = window.frame
         savedPresentationOptions = NSApp.presentationOptions
+        savedMovable = window.isMovable
         isActive = true
+        bypassLogged = false
 
+        setFrameConstraintBypass(true)
         NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
+        window.isMovable = false
         window.setFrame(screen.frame, display: true)
         window.makeKeyAndOrderFront(nil)
         hookZoomButton(on: window)
-        startObservingScreenChanges()
+        startObserving()
+        log("进入自绘全屏 目标=\(fmt(screen.frame)) 实际=\(fmt(window.frame)) presentation=\(NSApp.presentationOptions.rawValue) isKey=\(window.isKeyWindow) \(describe(screen))")
+
+        // 系统可能在这一拍之后又把窗口顶下来（刘海安全区），补一次并留痕
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self, weak window] in
+            guard let self, let window, self.isActive else { return }
+            let target = window.screen ?? screen
+            guard window.frame != target.frame else { return }
+            self.log("0.2s 后窗口被挪动：\(fmt(window.frame))，补一次")
+            self.reassertFrame(window, to: target)
+        }
     }
 
     private func exit() {
         guard isActive, let window else { return }
         isActive = false
+        setFrameConstraintBypass(false)
+        stopObserving()
 
         NSApp.presentationOptions = savedPresentationOptions
-        window.setFrame(restoredFrame(), display: true)
+        window.isMovable = savedMovable
+        let target = restoredFrame()
+        window.setFrame(target, display: true)
         hookZoomButton(on: window)
-        stopObservingScreenChanges()
+        log("退出自绘全屏 目标=\(fmt(target)) 实际=\(fmt(window.frame)) presentation=\(NSApp.presentationOptions.rawValue)")
     }
 
     /// 退出时回到进入前的矩形；期间若换过显示器 / 改过分辨率，按可见区域钳制回来
@@ -125,27 +175,70 @@ final class CustomFullScreen {
         return frame
     }
 
-    // MARK: - 全屏期间换屏 / 改分辨率
+    // MARK: - 全屏期间盯住窗口 frame
 
-    private func startObservingScreenChanges() {
-        guard screenObserver == nil else { return }
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self,
-                  self.isActive,
-                  let window = self.window,
-                  let screen = window.screen ?? NSScreen.main else { return }
-            window.setFrame(screen.frame, display: true)
+    private func startObserving() {
+        guard self.window != nil, observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [NSApplication.didChangeScreenParametersNotification,
+                                          NSWindow.didResizeNotification,
+                                          NSWindow.didMoveNotification]
+        for name in names {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.isActive, let window = self.window,
+                      let screen = window.screen ?? NSScreen.main else { return }
+                self.reassertFrame(window, to: screen)
+            })
         }
     }
 
-    private func stopObservingScreenChanges() {
-        if let screenObserver {
-            NotificationCenter.default.removeObserver(screenObserver)
+    private func stopObserving() {
+        let center = NotificationCenter.default
+        observers.forEach { center.removeObserver($0) }
+        observers.removeAll()
+    }
+
+    /// 全屏期间窗口必须始终铺满当前屏幕：被系统顶下来、被误拖 / 误缩放都拉回来
+    private func reassertFrame(_ window: NSWindow, to screen: NSScreen) {
+        guard !isReassertingFrame, window.frame != screen.frame else { return }
+        isReassertingFrame = true
+        window.setFrame(screen.frame, display: true)
+        isReassertingFrame = false
+    }
+
+    // MARK: - 排查用日志（写 ~/Library/Logs/声潮-全屏.log，只记进入 / 退出这些关键点）
+
+    private func describe(_ screen: NSScreen?) -> String {
+        guard let screen else { return "屏幕=nil" }
+        return "屏幕 frame=\(fmt(screen.frame)) visible=\(fmt(screen.visibleFrame)) 刘海安全区=\(screen.safeAreaInsets.top) 左右刘海区=\(String(describing: screen.auxiliaryTopLeftArea))/\(String(describing: screen.auxiliaryTopRightArea))"
+    }
+
+    private func fmt(_ rect: NSRect) -> String {
+        String(format: "(%.0f,%.0f,%.0f,%.0f)", rect.origin.x, rect.origin.y, rect.width, rect.height)
+    }
+
+    private func log(_ message: String) {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("声潮-全屏.log")
+        let line = "[\(Date())] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            let size = (try? handle.seekToEnd()) ?? 0
+            if size > 64 * 1024 { try? handle.truncate(atOffset: 0) }   // 超过 64KB 从头覆盖
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url)
         }
-        screenObserver = nil
+    }
+}
+
+private extension NSWindow {
+    /// 替换 constrainFrameRect 用的实现：自绘全屏期间让主窗口的 frame 原样通过。
+    /// 装上替换之后，这里再调 sc_constrainFrameRect 走的就是系统原来的实现。
+    @objc func sc_constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        if CustomFullScreen.shared.shouldBypassFrameConstraint(for: self) { return frameRect }
+        return sc_constrainFrameRect(frameRect, to: screen)
     }
 }
