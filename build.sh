@@ -107,19 +107,18 @@ PLIST
 echo "==> ad-hoc 签名（未签名 app 图标可能不显示）"
 codesign --force --deep --sign "ShengChao Local Dev" "${BUNDLE}" 2>&1 || echo "(签名跳过)"
 
-echo "==> 同步到 Applications"
-DEST_APPS="/Applications/${APP_NAME}.app"
+echo "==> 安装到用户 Applications"
+# 只装到 ~/Applications：同一 bundle id 的包若同时存在于 /Applications 与 ~/Applications，
+# Dock / LaunchServices 会把它们当成两个 app，出现两个「声潮」图标。
+DEST_APPS="${HOME}/Applications/${APP_NAME}.app"
 
 # 先停掉正在运行的旧实例，避免占用
 pkill -f "${EXEC_NAME}" 2>/dev/null || true
 
-if [ -w /Applications ]; then
-  rm -rf "${DEST_APPS}"
-  ditto "${BUNDLE}" "${DEST_APPS}"
-  codesign --force --deep --sign "ShengChao Local Dev" "${DEST_APPS}" 2>&1 || echo "(Applications 签名跳过)"
-else
-  echo "(Applications 无写权限，跳过)"
-fi
+mkdir -p "${HOME}/Applications"
+rm -rf "${DEST_APPS}"
+ditto "${BUNDLE}" "${DEST_APPS}"
+codesign --force --deep --sign "ShengChao Local Dev" "${DEST_APPS}" 2>&1 || echo "(签名跳过)"
 
 echo "==> 完成"
 echo "App: ${BUNDLE}"
