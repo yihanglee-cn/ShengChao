@@ -120,7 +120,15 @@ rm -rf "${DEST_APPS}"
 ditto "${BUNDLE}" "${DEST_APPS}"
 codesign --force --deep --sign "ShengChao Local Dev" "${DEST_APPS}" 2>&1 || echo "(签名跳过)"
 
+echo "==> 打包 DMG（复用 make_dmg.sh 的美化流程：背景图 + 拖入 Applications 布局）"
+# 只保留最新的一份：先删掉 build 下已有的 dmg（开头已清空 build，这里是双保险）
+rm -f build/*.dmg
+./make_dmg.sh
+# 清掉打包中间产物，build 目录里只留最新的 dmg 与 app
+rm -rf build/dmg-staging build/rw.dmg build/dmg-background.png
+
 echo "==> 完成"
 echo "App: ${BUNDLE}"
 du -sh "${BUNDLE}"
 echo "已同步到: ${DEST_APPS}"
+ls -1 build/*.dmg
