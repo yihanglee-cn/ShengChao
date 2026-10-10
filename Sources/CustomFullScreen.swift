@@ -39,12 +39,20 @@ final class CustomFullScreen: ObservableObject {
     /// 全屏时界面要内缩的距离（外面那一圈在屏幕外，见类型注释）。ContentView 用它做 padding。
     @Published private(set) var overscan: CGFloat = 0
 
+    /// 全屏时自绘的那组红黄绿灯是否显示：跟系统全屏一个习惯——光标移到屏幕顶端那一条才露出来，
+    /// 平时藏起来，免得全屏时一直杵在左上角。
+    @Published private(set) var showsTrafficLights = false
+
+    private static let revealZoneHeight: CGFloat = 60
+
     private weak var window: NSWindow?
     private var savedFrame: NSRect = .zero
     private var savedPresentationOptions: NSApplication.PresentationOptions = []
     private var savedMovable = true
     private var keyMonitor: Any?
     private var observers: [NSObjectProtocol] = []
+    private var revealTimer: Timer?
+    private var revealGraceUntil = Date.distantPast
     private var bypassInstalled = false
     private var bypassLogged = false
     private var isReassertingFrame = false
@@ -165,6 +173,7 @@ final class CustomFullScreen: ObservableObject {
         window.makeKeyAndOrderFront(nil)
         hookZoomButton(on: window)
         startObserving()
+        startRevealTracking()
         log("进入自绘全屏 目标=\(fmt(target)) 实际=\(fmt(window.frame)) presentation=\(NSApp.presentationOptions.rawValue) isKey=\(window.isKeyWindow) \(describe(screen))")
 
         // 系统可能在这一拍之后又把窗口顶下来（刘海安全区），补一次并留痕
@@ -183,6 +192,7 @@ final class CustomFullScreen: ObservableObject {
         overscan = 0
         setFrameConstraintBypass(false)
         stopObserving()
+        stopRevealTracking()
 
         NSApp.presentationOptions = savedPresentationOptions
         window.isMovable = savedMovable
@@ -244,8 +254,41 @@ final class CustomFullScreen: ObservableObject {
         overscan = 0
         setFrameConstraintBypass(false)
         stopObserving()
+        stopRevealTracking()
         NSApp.presentationOptions = savedPresentationOptions
         log("窗口关闭，收掉自绘全屏状态")
+    }
+
+    // MARK: - 自绘红绿灯的显隐
+
+    /// 全屏时盯着光标位置：只有光标进到屏幕顶端那一条（跟菜单栏一样的位置），
+    /// 才把自绘的红黄绿灯露出来；进全屏后先亮 2.5 秒，让用户知道这里有按钮。
+    /// 用定时读鼠标位置而不是装事件监视器：不依赖辅助功能权限，也不怕事件被菜单栏吃掉。
+    private func startRevealTracking() {
+        stopRevealTracking()
+        showsTrafficLights = true
+        // 刚进全屏先亮 2.5 秒（这段时间里定时器不把它收掉），让用户知道左上角有按钮
+        revealGraceUntil = Date().addingTimeInterval(2.5)
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.updateTrafficLightsVisibility()
+        }
+        // .common：拖动 / 动画期间定时器也照常跑
+        RunLoop.main.add(timer, forMode: .common)
+        revealTimer = timer
+    }
+
+    private func stopRevealTracking() {
+        revealTimer?.invalidate()
+        revealTimer = nil
+        revealGraceUntil = .distantPast
+        if showsTrafficLights { showsTrafficLights = false }
+    }
+
+    private func updateTrafficLightsVisibility() {
+        guard isActive, let screen = window?.screen ?? NSScreen.main else { return }
+        guard Date() >= revealGraceUntil else { return }
+        let inZone = NSEvent.mouseLocation.y >= screen.frame.maxY - Self.revealZoneHeight
+        if inZone != showsTrafficLights { showsTrafficLights = inZone }
     }
 
     private func stopObserving() {

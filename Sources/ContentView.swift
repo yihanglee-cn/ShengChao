@@ -379,12 +379,16 @@ struct ContentView: View {
                     .zIndex(20)
                 }
 
-                // 自绘全屏时系统那三个按钮被推到屏幕外了，这里补一组顶上（点绿色退出全屏）
+                // 自绘全屏时系统那三个按钮被推到屏幕外了，这里补一组顶上（点绿色退出全屏）。
+                // 平时隐藏，光标移到屏幕顶端那一条才浮出来，跟系统全屏的习惯一致。
                 if fullScreen.isActive {
                     FullScreenTrafficLights()
                         .padding(.leading, 13)
                         .padding(.top, 13)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .opacity(fullScreen.showsTrafficLights ? 1 : 0)
+                        .allowsHitTesting(fullScreen.showsTrafficLights)
+                        .animation(.easeInOut(duration: 0.18), value: fullScreen.showsTrafficLights)
                         .zIndex(60)
                 }
             }
