@@ -368,7 +368,7 @@ struct ContentView: View {
         .environment(\.uiScale, ui)
         // 最小窗口尺寸随档位放大：避免放大后窗口过小导致大封面/歌词被裁切
         .frame(minWidth: ui.s(1000), minHeight: ui.s(560))
-        .background(HostWindowProbe { hostWindow = $0 })
+        .background(HostWindowProbe { bindHostWindow($0) })
         // 让界面真正铺满整块屏幕：带刘海的内建屏全屏时，系统会在顶端留一条
         // 刘海/菜单栏高度的安全区，若不忽略，界面整体下移、上方就空出一条黑边。
         // 顶栏左右两簇内容在刘海两侧，中间是空的 Spacer，不会被刘海挡住。
@@ -476,6 +476,13 @@ struct ContentView: View {
             }
             removeVolumeDragMonitor()
         }
+    }
+
+    // 拿到宿主窗口：除了切档位要按比例调窗口，这里还接管窗口尺寸 / 位置的记忆
+    private func bindHostWindow(_ window: NSWindow?) {
+        hostWindow = window
+        guard let window else { return }
+        MainWindowFrame.shared.attach(to: window)
     }
 
     // 切换界面缩放档位时，按倍率等比调整窗口尺寸（顶边锚定），
@@ -904,7 +911,6 @@ struct ContentView: View {
                         .font(.system(size: 22, weight: .bold))
                         .foregroundColor(.white)
                         .frame(width: 60, height: 60)
-                        .glassEffect(.clear, in: Circle())
                 }
                 .buttonStyle(.plain)
 
@@ -2536,7 +2542,8 @@ struct SongListView: View {
                 .buttonStyle(.plain)
                 .help("定位到正在播放的歌曲")
                 .padding(.trailing, ui.s(26))
-                .padding(.bottom, ui.s(26))
+                // 与底部播放胶囊拉开距离：胶囊贴着底部约 64pt 高，这里抬到内容区下沿
+                .padding(.bottom, ui.s(84))
                 .transition(.opacity)
             }
         }

@@ -76,6 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await AudioLibrary.shared.autoRestore()
         }
     }
+
+    // 退出前把窗口尺寸 / 位置立即落盘（防抖可能还没到）
+    func applicationWillTerminate(_ notification: Notification) {
+        MainWindowFrame.shared.flush()
+    }
 }
 
 @main
