@@ -802,7 +802,10 @@ final class AudioLibrary: ObservableObject {
             let frameCount = AVAudioFramePosition(max(0, min(remaining, file.length - startFrame)))
 
             // 重建拓扑 + 恢复调度统一在 audioIOQueue 串行执行（与 refill 互斥），
-            // 重建完成后回主线程重新调度并恢复播放
+            // 重建完成后回主线程重新调度并恢复播放。
+            // 重建期间播放节点同样是 stop 状态，先给「被中断」兜底一段宽限，
+            // 成功恢复后会由 scheduleSegment 续上新的宽限（失败则宽限到期后照常判定）
+            rescheduleGraceUntil = Date().addingTimeInterval(Self.rescheduleGraceSeconds)
             scheduler.rebuildEngine(rebuild: rebuild,
                                     onComplete: { [weak self] in
                                         guard let self else { return }
@@ -839,6 +842,13 @@ final class AudioLibrary: ObservableObject {
     private var progressTimer: Timer?
     private var bitrateProfile: [(time: Double, bitrate: Double)] = []
     private var profileTask: Task<Void, Never>?
+
+    /// 重新调度后的「播放被中断」判定宽限（用法见 startProgressTimer）。
+    /// seek / 切歌 / 设备切换都会先 stop() 播放节点再重新 play()，
+    /// 这段空窗里 playerNode.isPlaying 短暂为 false，兜底不能据此判死。
+    private var rescheduleGraceUntil: Date?
+    /// 宽限时长：实测空窗只有 5–16ms，给足余量以覆盖高码率文件与外置 / 网络盘
+    private static let rescheduleGraceSeconds: TimeInterval = 3
 
     /// 播放调度器：音频读取、转换与调度在后台串行队列执行（不阻塞主线程）。
     /// 首次在 scheduleSegment（主线程）访问时初始化，之后由后台队列复用。
@@ -1672,6 +1682,12 @@ final class AudioLibrary: ObservableObject {
                                  frameCount: AVAudioFramePosition,
                                  shouldPlay: Bool,
                                  completion: @escaping () -> Void) {
+        // 重新调度会让播放节点先 stop()、补填 PCM 后才 play()：这段空窗里
+        // playerNode.isPlaying 会短暂为 false，progressTimer 的「被中断」兜底
+        // 不能据此判死，这里给它一段宽限（原因详见 startProgressTimer）
+        if shouldPlay {
+            rescheduleGraceUntil = Date().addingTimeInterval(Self.rescheduleGraceSeconds)
+        }
         scheduler.startPlayback(file: file, startFrame: startFrame,
                                 frameCount: frameCount, shouldPlay: shouldPlay,
                                 completion: completion)
@@ -1946,8 +1962,17 @@ final class AudioLibrary: ObservableObject {
                     }
                 }
 
-                // 播放被中断（如音频设备问题）：恢复主线程状态
+                // 播放被中断（如音频设备问题）：恢复主线程状态。
+                // 但重新调度（seek / 切歌 / 设备切换）之后有一段播放节点被 stop() 的空窗，
+                // 这期间 isPlaying 本来就是 false，不能算中断——否则拖动进度条时兜底会误判：
+                // 播放键变成暂停态，再拖一次才被 seek 自己修回来。
+                // 空窗本身很短（实测 5–16ms），但它是必然会被采样到的：seek 在主线程打开
+                // 音频文件会阻塞定时器，定时器补跑的那一帧正好落在空窗里。
+                // 所以按「重新调度时刻 + 宽限」跳过，宽限过后仍非播放才算真中断。
+                //（不因中途采样到「正在播放」就提前撤销宽限：后台调度是异步的，
+                //  提前撤销后万一空窗还没开始，又会被后面的采样撞上。）
                 if !self.playerNode.isPlaying && self.isPlaying {
+                    if let until = self.rescheduleGraceUntil, Date() < until { return }
                     self.isPlaying = false
                 }
             }
