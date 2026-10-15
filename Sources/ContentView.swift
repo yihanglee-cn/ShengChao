@@ -957,13 +957,17 @@ struct ContentView: View {
             coverProgressBar
 
             // 控制按钮：播放模式 / 上一首 / 播放暂停 / 下一首（+ 全屏模式：收藏、音量）
-            HStack(spacing: 26) {
+            // 命中区：SwiftUI 默认只把图标墨迹当热区，`.frame()` 里其余空白点不到、还会把点击
+            // 穿透给外层手势（实测 44×44 的框只有约 12×12 能点到）。所以 frame 直接做成命中尺寸，
+            // 并补 `.contentShape(Rectangle())` 把框内空白一起纳入；图标字号不变，视觉只是间距略宽。
+            HStack(spacing: 16) {
                 Button { library.cyclePlaybackMode() } label: {
                     Image(systemName: library.playbackMode == .one ? "repeat.1" :
                                           library.playbackMode == .shuffle ? "shuffle" : "repeat")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(library.playbackMode == .off ? .white.opacity(0.45) : .white)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 56, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -971,7 +975,8 @@ struct ContentView: View {
                     Image(systemName: "backward.fill")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 56, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -979,7 +984,8 @@ struct ContentView: View {
                     Image(systemName: library.isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 22, weight: .bold))
                         .foregroundColor(.white)
-                        .frame(width: 60, height: 60)
+                        .frame(width: 72, height: 72)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -987,7 +993,8 @@ struct ContentView: View {
                     Image(systemName: "forward.fill")
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 56, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -996,7 +1003,8 @@ struct ContentView: View {
                         Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(library.isFavorite(track) ? .red : .white.opacity(0.8))
-                            .frame(width: 44, height: 44)
+                            .frame(width: 56, height: 56)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -1019,15 +1027,15 @@ struct ContentView: View {
         Image(systemName: library.volume == 0 ? "speaker.slash.fill" : "speaker.fill")
             .font(.system(size: 18, weight: .semibold))
             .foregroundColor(.white.opacity(coverVolumePopoverVisible ? 1 : 0.8))
-            .frame(width: 44, height: 44)
+            .frame(width: 56, height: 56)
             .contentShape(Rectangle())
             .onTapGesture { setVolumePanel(visible: !coverVolumePopoverVisible) }
             .help("音量")
-            // 面板贴按钮底部再整体上移（按钮高 44 + 12 间隙），这样无需知道面板高度
+            // 面板贴按钮底部再整体上移（按钮高 56 + 12 间隙），这样无需知道面板高度
             .overlay(alignment: .bottom) {
                 if coverVolumePopoverVisible {
                     coverVolumePanel
-                        .offset(y: -56)
+                        .offset(y: -68)
                         .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom)))
                 }
             }
@@ -3108,6 +3116,62 @@ struct PlaylistView: View {
 
 // MARK: - 正在播放栏
 
+// MARK: - 加厚 Slider 的纵向抓取带
+
+/// 给原生 `Slider` 套一层更高的透明交互层，视觉不变、纵向更好抓。
+///
+/// 实测（合成鼠标事件网格扫描，三种写法各点一遍）：
+/// - 原生 Slider 只按自身控件高度接收点击，纵向热区恒为约 15pt，**加 `.frame(height:)` 无效**；
+/// - `.controlSize(.large)` 只到 19pt，且旋钮会变大；
+/// - 外层撑高 + 透明覆盖接管拖拽后，热区等于外层高度（实测 40pt 全部可点）。
+///
+/// 所以这里保留原生滑轨当外观，拖动换算成值交回调用方。
+private struct ThickSliderHitArea: ViewModifier {
+    let width: CGFloat
+    let height: CGFloat
+    let range: ClosedRange<Double>
+    /// (新值, 是否结束拖动)
+    let onDrag: (Double, Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .frame(width: width)
+            .frame(height: height)
+            .overlay {
+                GeometryReader { geo in
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { g in
+                                    onDrag(value(at: g.location.x, width: geo.size.width), false)
+                                }
+                                .onEnded { g in
+                                    onDrag(value(at: g.location.x, width: geo.size.width), true)
+                                }
+                        )
+                }
+            }
+    }
+
+    /// 与原生滑轨一致：两端各留一个旋钮半径（10pt），否则拖不到 0 / 最大值
+    private func value(at x: CGFloat, width: CGFloat) -> Double {
+        let inset: CGFloat = 10
+        let usable = max(1, width - inset * 2)
+        let ratio = min(1, max(0, (x - inset) / usable))
+        return range.lowerBound + (range.upperBound - range.lowerBound) * Double(ratio)
+    }
+}
+
+private extension View {
+    func thickSliderHitArea(width: CGFloat,
+                            height: CGFloat,
+                            range: ClosedRange<Double>,
+                            onDrag: @escaping (Double, Bool) -> Void) -> some View {
+        modifier(ThickSliderHitArea(width: width, height: height, range: range, onDrag: onDrag))
+    }
+}
+
 struct NowPlayingBar: View {
     @Environment(\.uiScale) private var ui
     @ObservedObject var library: AudioLibrary
@@ -3189,13 +3253,17 @@ struct NowPlayingBar: View {
             .frame(width: ui.s(175), alignment: .leading)
 
             // 中栏：播放控制（固定中央，圆形液态玻璃）
-            HStack(spacing: ui.s(8)) {
+            // 命中区：SwiftUI 默认只把图标墨迹当热区（实测 28×28 的框只有约 9×9 能点到），
+            // frame 里其余空白会被整条胶囊的 onTapGesture（打开播放页）接走——所以这里把
+            // frame 直接做成 44×44 的命中尺寸并补 contentShape，间距收到 0 保证两两不重叠。
+            HStack(spacing: 0) {
                 Button { library.cyclePlaybackMode() } label: {
                     Image(systemName: library.playbackMode == .one ? "repeat.1" :
                                           library.playbackMode == .shuffle ? "shuffle" : "repeat")
                         .font(ui.fs(13, .semibold))
                         .foregroundStyle(library.playbackMode == .off ? theme.tertiaryText : theme.primaryText)
-                        .frame(width: ui.s(28), height: ui.s(28))
+                        .frame(width: ui.s(44), height: ui.s(44))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -3203,7 +3271,8 @@ struct NowPlayingBar: View {
                     Image(systemName: "backward.fill")
                         .font(ui.fs(14, .semibold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: ui.s(30), height: ui.s(30))
+                        .frame(width: ui.s(44), height: ui.s(44))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.tracks.isEmpty)
@@ -3212,7 +3281,8 @@ struct NowPlayingBar: View {
                     Image(systemName: library.isPlaying ? "pause.fill" : "play.fill")
                         .font(ui.fs(17, .bold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: ui.s(36), height: ui.s(36))
+                        .frame(width: ui.s(44), height: ui.s(44))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.currentTrack == nil)
@@ -3221,7 +3291,8 @@ struct NowPlayingBar: View {
                     Image(systemName: "forward.fill")
                         .font(ui.fs(14, .semibold))
                         .foregroundStyle(theme.primaryText)
-                        .frame(width: ui.s(30), height: ui.s(30))
+                        .frame(width: ui.s(44), height: ui.s(44))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.tracks.isEmpty)
@@ -3234,12 +3305,13 @@ struct NowPlayingBar: View {
                     Image(systemName: library.currentTrack.map { library.isFavorite($0) } == true ? "heart.fill" : "heart")
                         .font(ui.fs(14, .semibold))
                         .foregroundStyle(library.currentTrack.map { library.isFavorite($0) } == true ? .red : theme.primaryText)
-                        .frame(width: ui.s(28), height: ui.s(28))
+                        .frame(width: ui.s(44), height: ui.s(44))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(library.currentTrack == nil)
             }
-            .frame(width: ui.s(188))
+            .frame(width: ui.s(220))
 
             // 右栏：进度（可拖动） + 音量
             HStack(spacing: ui.s(14)) {
@@ -3257,14 +3329,17 @@ struct NowPlayingBar: View {
                                 .glassEffect(in: Capsule())
                                 .transition(.opacity)
                         }
-                        Slider(value: $seekPosition, in: 0...max(1, duration), onEditingChanged: { editing in
-                            isDragging = editing
-                            if !editing {
-                                library.seek(to: seekPosition)
+                        Slider(value: $seekPosition, in: 0...max(1, duration))
+                            .tint(theme.primaryText.opacity(0.75))
+                            .thickSliderHitArea(width: ui.s(84),
+                                                height: ui.s(30),
+                                                range: 0...max(1, duration)) { value, ended in
+                                seekPosition = value
+                                isDragging = !ended
+                                if ended {
+                                    library.seek(to: seekPosition)
+                                }
                             }
-                        })
-                        .frame(width: ui.s(84))
-                        .tint(theme.primaryText.opacity(0.75))
                     }
                     .animation(.easeInOut(duration: 0.15), value: isDragging)
                     Text(library.formatTime(library.currentTrack?.duration ?? 0))
@@ -3285,11 +3360,14 @@ struct NowPlayingBar: View {
                                 .glassEffect(in: Capsule())
                                 .transition(.opacity)
                         }
-                        Slider(value: $library.volume, in: 0...1, onEditingChanged: { editing in
-                            isVolumeDragging = editing
-                        })
-                        .frame(width: ui.s(48))
-                        .tint(theme.primaryText.opacity(0.75))
+                        Slider(value: $library.volume, in: 0...1)
+                            .tint(theme.primaryText.opacity(0.75))
+                            .thickSliderHitArea(width: ui.s(48),
+                                                height: ui.s(30),
+                                                range: 0...1) { value, ended in
+                                library.volume = value
+                                isVolumeDragging = !ended
+                            }
                     }
                     .animation(.easeInOut(duration: 0.15), value: isVolumeDragging)
                 }
