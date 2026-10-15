@@ -3341,6 +3341,9 @@ struct NowPlayingBar: View {
                                 }
                             }
                     }
+                    // 槽位锁死高度，拖动气泡向上溢出但不参与布局：
+                    // 不锁的话气泡会把整条胶囊顶高 10pt，一拖进度条整条栏就跳
+                    .frame(height: ui.s(30), alignment: .bottom)
                     .animation(.easeInOut(duration: 0.15), value: isDragging)
                     Text(library.formatTime(library.currentTrack?.duration ?? 0))
                         .font(ui.fs(FB.caption).monospacedDigit())
@@ -3369,6 +3372,8 @@ struct NowPlayingBar: View {
                                 isVolumeDragging = !ended
                             }
                     }
+                    // 同上：槽位锁死高度，音量气泡不撑高胶囊
+                    .frame(height: ui.s(30), alignment: .bottom)
                     .animation(.easeInOut(duration: 0.15), value: isVolumeDragging)
                 }
             }
