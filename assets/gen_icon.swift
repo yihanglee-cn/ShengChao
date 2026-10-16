@@ -1,6 +1,6 @@
 import AppKit
 
-// 生成黑白 waveform 图标（黑色圆角底 + 白色波形）
+// 生成黑白 waveform 图标（白色圆角底 + 黑色波形）
 // 用法: swift gen_icon.swift <输出.png路径>
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "icon_1024.png"
 
@@ -9,16 +9,16 @@ let image = NSImage(size: NSSize(width: size, height: size))
 
 image.lockFocus()
 
-// 黑色圆角底
+// 白色圆角底
 let corner: CGFloat = size * 0.22
-NSColor.black.setFill()
+NSColor.white.setFill()
 NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: size, height: size),
              xRadius: corner, yRadius: corner).fill()
 
-// 白色 waveform（用 paletteColors 强制白色）
+// 黑色 waveform（用 paletteColors 强制黑色）
 let symbolSize = size * 0.60
 let config = NSImage.SymbolConfiguration(pointSize: symbolSize, weight: .medium)
-    .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+    .applying(NSImage.SymbolConfiguration(paletteColors: [.black]))
 if let sym = NSImage(systemSymbolName: "waveform", accessibilityDescription: nil)?
     .withSymbolConfiguration(config) {
     let s = sym.size
