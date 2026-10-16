@@ -1036,7 +1036,12 @@ struct ContentView: View {
                 if coverVolumePopoverVisible {
                     coverVolumePanel
                         .offset(y: -68)
-                        .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottom)))
+                        // 只允许淡入。这里绝对不能加 .scale / .move 这类几何过渡：
+                        // SwiftUI 会把「过渡起始帧」的几何固化进互操作视图（面板里的 VolumeBarProbe）
+                        // 的 AppKit frame，动画结束后不再刷新，于是 NSEvent 监视器读到的命中矩形
+                        // 永久偏小偏下（实测 .scale(0.85) 会一直上报 34×112.2，而可见轨道是 40×132），
+                        // 点条上任何位置算出来的音量都比落点高十几到三十个百分点。
+                        .transition(.opacity)
                 }
             }
             .zIndex(20)
