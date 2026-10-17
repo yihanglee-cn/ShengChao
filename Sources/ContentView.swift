@@ -2363,11 +2363,18 @@ struct TrackRow: View {
                             .lineLimit(1)
                     }
                     Spacer()
-                    // 码率（无损 FLAC / ALAC 会显示 1000+ kbps）
-                    Text(track.bitrateText ?? "—")
+                    // 专辑名称（与歌名分开成列，方便按专辑扫读；同专辑的行左边缘对齐）
+                    Text(track.album.isEmpty ? "—" : track.album)
+                        .font(ui.fs(FB.caption))
+                        .foregroundStyle(theme.secondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: ui.s(150), alignment: .leading)
+                    // 文件大小（无损文件动辄几十上百 MB，比码率更能说明占用）
+                    Text(track.fileSizeText ?? "—")
                         .font(ui.fs(FB.caption).monospacedDigit())
                         .foregroundStyle(theme.tertiaryText)
-                        .frame(width: ui.s(78), alignment: .trailing)
+                        .frame(width: ui.s(72), alignment: .trailing)
                     Text(library.formatTime(track.duration))
                         .font(ui.fs(FB.caption).monospacedDigit())
                         .foregroundStyle(theme.secondaryText)

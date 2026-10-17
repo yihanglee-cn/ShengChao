@@ -239,6 +239,9 @@ struct AudioTrack: Identifiable, Codable {
     let dynamicCoverURL: URL?
     let trackNumber: Int?
     let artworkDiskName: String?   // 曲库缓存专用：内嵌封面落盘后的文件名（JSON 不存原始封面）
+    /// 文件字节数（列表里的「文件大小」列）。
+    /// 旧缓存没有这个字段，解码得到 nil，扫描时按文件签名回填，所以升级后无需全量重扫。
+    var fileSize: Int64? = nil
 
     /// 按需获取封面图（走缓存，不提前解码）
     var artwork: NSImage? {
@@ -273,7 +276,7 @@ struct AudioTrack: Identifiable, Codable {
          bitrate: Int, sampleRate: Double = 0,
          bitDepth: Int = 0, startOffset: Double = 0, lyrics: [LyricsLine]? = nil,
          dynamicCoverURL: URL? = nil, trackNumber: Int? = nil,
-         artworkDiskName: String? = nil) {
+         artworkDiskName: String? = nil, fileSize: Int64? = nil) {
         self.id = id
         self.url = url
         self.title = title
@@ -290,6 +293,7 @@ struct AudioTrack: Identifiable, Codable {
         self.dynamicCoverURL = dynamicCoverURL
         self.trackNumber = trackNumber
         self.artworkDiskName = artworkDiskName
+        self.fileSize = fileSize
     }
 
     /// 采样率显示文本，如 "44.1 kHz"、"96 kHz"
@@ -313,6 +317,20 @@ struct AudioTrack: Identifiable, Codable {
         guard bitrate > 0 else { return nil }
         return "\(bitrate) kbps"
     }
+
+    /// 文件大小显示文本，如 "12.3 MB"、"1.2 GB"
+    var fileSizeText: String? {
+        guard let fileSize, fileSize > 0 else { return nil }
+        return Self.byteFormatter.string(fromByteCount: fileSize)
+    }
+
+    /// 复用一个格式化器：列表里每行都要用，每次新建代价太大
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter
+    }()
 }
 
 struct AlbumGroup: Identifiable {
@@ -1118,6 +1136,16 @@ final class AudioLibrary: ObservableObject {
                 allTracks.append(track)
             }
             cueTrackKeys[cuePath] = keys
+        }
+
+        // 5.1 文件大小：从本次扫描的文件签名回填。
+        // 旧缓存里没有这个字段（解码为 nil），靠这一步补齐，所以升级后不必全量重扫；
+        // CUE 展开出的分轨共用同一个音频文件，大小即该文件的大小。
+        for i in allTracks.indices {
+            let path = allTracks[i].url.standardizedFileURL.path
+            if let size = currentSigs[path]?.size, size > 0 {
+                allTracks[i].fileSize = Int64(size)
+            }
         }
 
         // 6. 文件夹封面兜底 + 动态封面（每次扫描都重探测，目录封面变化也能刷新）
