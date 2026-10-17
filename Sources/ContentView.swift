@@ -303,6 +303,8 @@ struct ContentView: View {
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    // 全屏封面右侧渐变过渡的起点百分比（0 = 从最左边就开始淡出，100 = 右缘硬切）
+    @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 15.0
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
     @State private var hostWindow: NSWindow?
     @State private var showSettings = false
@@ -717,6 +719,9 @@ struct ContentView: View {
                 // 会取图片像素理想尺寸（如 1342×1342）导致溢出 ZStack，翻转 .position 坐标系
                 Group {
                     if fullScreenCoverMode, let fullArt = library.currentTrack?.artwork {
+                        // 过渡起点（占正方形宽度比例）：0 = 从最左边就开始淡出，1 = 右缘硬切
+                        let fadeStart = fullCoverGradientPosition / 100
+                        let fadeMid = fadeStart + (1 - fadeStart) * 0.5
                         // 底层：封面模糊铺满全屏，右侧歌词区背景
                         Color.black
                         Image(nsImage: fullArt)
@@ -725,6 +730,7 @@ struct ContentView: View {
                             .blur(radius: 60)
                             .overlay(Color.black.opacity(0.4))
                         // 上层：左侧正方形封面完整清晰，右缘渐变淡出到模糊背景
+                        // 渐变终点固定在正方形右缘，只挪起点：起点越大，过渡带越窄、分界越明显
                         Image(nsImage: fullArt)
                             .resizable()
                             .scaledToFit()
@@ -732,9 +738,7 @@ struct ContentView: View {
                             .mask(
                                 LinearGradient(
                                     gradient: Gradient(stops: [
-                                        .init(color: .black, location: 0),
-                                        .init(color: .black, location: 0.58),
-                                        .init(color: .black.opacity(0.62), location: 0.78),
+                                        .init(color: .black, location: fadeStart),
                                         .init(color: .clear, location: 1)
                                     ]),
                                     startPoint: .leading, endPoint: .trailing
@@ -750,8 +754,8 @@ struct ContentView: View {
                                 LinearGradient(
                                     gradient: Gradient(stops: [
                                         .init(color: .clear, location: 0),
-                                        .init(color: .clear, location: 0.60),
-                                        .init(color: .black.opacity(0.42), location: 0.78),
+                                        .init(color: .clear, location: fadeStart),
+                                        .init(color: .black.opacity(0.42), location: fadeMid),
                                         .init(color: .clear, location: 1)
                                     ]),
                                     startPoint: .leading, endPoint: .trailing
@@ -1386,6 +1390,7 @@ struct SettingsPanel: View {
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 15.0
     @State private var hoveringClose = false
             private var theme: AppTheme { nightMode ? .night : .day }
 
@@ -1434,6 +1439,28 @@ struct SettingsPanel: View {
                         .accentColor(.blue)
                         .help("全屏封面")
                 }
+
+                // 行 3：封面过渡位置（全屏封面与右侧模糊区的分界柔硬）
+                VStack(alignment: .leading, spacing: ui.s(8)) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("封面过渡位置")
+                            .foregroundStyle(theme.primaryText)
+                        Text("调整全屏封面右侧的渐变过渡位置")
+                            .font(ui.fs(FB.caption))
+                            .foregroundStyle(theme.secondaryText)
+                    }
+                    HStack(spacing: ui.s(10)) {
+                        Slider(value: $fullCoverGradientPosition, in: 0...100, step: 1)
+                            .tint(.blue)
+                        Text("\(Int(fullCoverGradientPosition))%")
+                            .font(ui.fs(FB.caption).monospacedDigit())
+                            .foregroundStyle(theme.secondaryText)
+                            .frame(width: ui.s(40), alignment: .trailing)
+                    }
+                }
+                .disabled(!fullScreenCoverMode)
+                .opacity(fullScreenCoverMode ? 1 : 0.45)
+                .help("数值越小，过渡带越长、分界越柔；100% 时封面右缘硬切")
 
                 // 行 4：界面缩放（接电视远距离观看时调大）
                 UIScalePickerRow()
