@@ -307,16 +307,20 @@ struct ContentView: View {
     // 值越小封面越透明（整张图会像蒙了层纱），默认 58 与最初的几何一致。
     @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 58.0
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
+    @AppStorage(AppFont.storageKey) private var appFontFamily = AppFont.systemDefault
     @State private var hostWindow: NSWindow?
     @State private var showSettings = false
     @State private var showUpload = false
     /// 自绘全屏时窗口比屏幕大一圈（把窗口自带圆角推到屏幕外），界面要按 overscan 内缩回来
     @ObservedObject private var fullScreen = CustomFullScreen.shared
 
-    /// 界面缩放档位。
+    /// 界面缩放档位 + 界面字体。
     /// 这里用局部计算属性而非 @Environment：本视图是缩放环境的**提供者**，
     /// 自身的 @Environment 拿到的是父级（可能已过期）的值。
-    private var ui: UIScaleOption { UIScaleOption(rawValue: uiScaleRaw) ?? .standard }
+    private var ui: UIScale {
+        UIScale(option: UIScaleOption(rawValue: uiScaleRaw) ?? .standard,
+                fontFamily: appFontFamily)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -371,7 +375,7 @@ struct ContentView: View {
                         }
                     } label: {
                         Text("词")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(ui.rawFont(size: 16, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(width: 44, height: 44)
                             .glassEffect(.clear, in: Circle())
@@ -829,11 +833,11 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         VStack(alignment: .center, spacing: 4) {
                             Text(track.title)
-                                .font(.system(size: 34, weight: .bold))
+                                .font(ui.rawFont(size: 34, weight: .bold))
                                 .foregroundColor(.white)
                                 .lineLimit(1)
                             Text("\(track.artist) · \(track.album)")
-                                .font(.system(size: 15))
+                                .font(ui.rawFont(size: 15))
                                 .foregroundColor(.white.opacity(0.7))
                                 .lineLimit(1)
                         }
@@ -1058,7 +1062,7 @@ struct ContentView: View {
         let fill = max(4, track * CGFloat(library.volume))
         return VStack(spacing: 10) {
             Text("\(Int((library.volume * 100).rounded()))%")
-                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(ui.rawFont(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundColor(.white.opacity(0.8))
                 .frame(width: 40)
 
@@ -1087,7 +1091,7 @@ struct ContentView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundColor(.white)
             Text("\(Int(library.volume * 100))%")
-                .font(.system(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(ui.rawFont(size: 15, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundColor(.white)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -1126,8 +1130,8 @@ struct ContentView: View {
                         ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
                             let isCurrent = index == currentLyricIndex
                             Text(line.text)
-                                .font(.system(size: isCurrent ? currentFontSize : secondaryFontSize,
-                                              weight: isCurrent ? .semibold : .regular))
+                                .font(ui.rawFont(size: isCurrent ? currentFontSize : secondaryFontSize,
+                                                 weight: isCurrent ? .semibold : .regular))
                                 .foregroundColor(.white.opacity(isCurrent ? 1.0 : 0.4))
                                 // 长句自动换行时，多行文本在自身框内也居中（避免第二行左对齐）
                                 .multilineTextAlignment(.center)
@@ -1453,7 +1457,10 @@ struct SettingsPanel: View {
                 // 行 3：界面缩放（接电视远距离观看时调大）
                 UIScalePickerRow()
 
-                // 行 4：版本号（原来在侧边栏点「声潮」logo 查看，logo 去掉后常驻在这里）
+                // 行 4：界面字体（从系统已装字体里挑一个，只换字面不动字号）
+                FontPickerRow()
+
+                // 行 5：版本号（原来在侧边栏点「声潮」logo 查看，logo 去掉后常驻在这里）
                 Text("声潮 \(appVersion)")
                     .font(ui.fs(FB.caption))
                     .foregroundStyle(theme.tertiaryText)
@@ -1613,6 +1620,9 @@ struct SettingsView: View {
 
             // 行 2：界面缩放（接电视远距离观看时调大）
             UIScalePickerRow()
+
+            // 行 3：界面字体
+            FontPickerRow()
         }
         .padding(ui.s(20))
         .frame(width: ui.s(300))

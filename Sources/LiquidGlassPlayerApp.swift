@@ -88,13 +88,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct LiquidGlassPlayerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
+    @AppStorage(AppFont.storageKey) private var appFontFamily = AppFont.systemDefault
 
     private var uiScale: UIScaleOption { UIScaleOption(rawValue: uiScaleRaw) ?? .standard }
+
+    /// 缩放档位 + 界面字体：一起下发，字体一改整个界面立刻跟着换
+    private var ui: UIScale { UIScale(option: uiScale, fontFamily: appFontFamily) }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environment(\.uiScale, uiScale)
+                .environment(\.uiScale, ui)
         }
         .windowStyle(.hiddenTitleBar)
         // 首次启动的窗口尺寸随档位放大，避免大档位下内容被挤压
@@ -103,7 +107,7 @@ struct LiquidGlassPlayerApp: App {
 
         Window("悬浮窗", id: "floating") {
             FloatingPlayerView()
-                .environment(\.uiScale, uiScale)
+                .environment(\.uiScale, ui)
         }
         .windowStyle(.hiddenTitleBar)
         .windowLevel(.floating)
@@ -111,7 +115,7 @@ struct LiquidGlassPlayerApp: App {
 
         Window("设置", id: "settings") {
             SettingsView()
-                .environment(\.uiScale, uiScale)
+                .environment(\.uiScale, ui)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
