@@ -301,8 +301,8 @@ struct ContentView: View {
     @State private var clickMonitor: Any? = nil            // 点击搜索框以外的地方结束编辑
     @Namespace private var coverNamespace
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = false
+    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = true
     // 全屏封面右侧渐变过渡的起点百分比（0 = 从最左边就开始淡出，100 = 右缘硬切）
     @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 15.0
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
@@ -1388,8 +1388,7 @@ struct SettingsPanel: View {
     @Environment(\.uiScale) private var ui
     @Binding var showSettings: Bool
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = true
     @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 15.0
     @State private var hoveringClose = false
             private var theme: AppTheme { nightMode ? .night : .day }
@@ -1411,19 +1410,7 @@ struct SettingsPanel: View {
 
             // 设置面板本体
             VStack(spacing: ui.s(18)) {
-                // 行 1：动态封面
-                HStack(spacing: ui.s(12)) {
-                    Text("动态封面")
-                        .foregroundStyle(theme.primaryText)
-                    Spacer(minLength: 12)
-                    Toggle("", isOn: $dynamicCoverEnabled)
-                        .toggleStyle(.switch)
-                        .tint(.blue)
-                        .accentColor(.blue)
-                        .help("动态封面")
-                }
-
-                // 行 2：全屏封面
+                // 行 1：全屏封面
                 HStack(spacing: ui.s(12)) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("全屏封面")
@@ -1440,7 +1427,7 @@ struct SettingsPanel: View {
                         .help("全屏封面")
                 }
 
-                // 行 3：封面过渡位置（全屏封面与右侧模糊区的分界柔硬）
+                // 行 2：封面过渡位置（全屏封面与右侧模糊区的分界柔硬）
                 VStack(alignment: .leading, spacing: ui.s(8)) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("封面过渡位置")
@@ -1462,10 +1449,10 @@ struct SettingsPanel: View {
                 .opacity(fullScreenCoverMode ? 1 : 0.45)
                 .help("数值越小，过渡带越长、分界越柔；100% 时封面右缘硬切")
 
-                // 行 4：界面缩放（接电视远距离观看时调大）
+                // 行 3：界面缩放（接电视远距离观看时调大）
                 UIScalePickerRow()
 
-                // 行 5：版本号（原来在侧边栏点「声潮」logo 查看，logo 去掉后常驻在这里）
+                // 行 4：版本号（原来在侧边栏点「声潮」logo 查看，logo 去掉后常驻在这里）
                 Text("声潮 \(appVersion)")
                     .font(ui.fs(FB.caption))
                     .foregroundStyle(theme.tertiaryText)
@@ -1597,8 +1584,7 @@ struct SettingsView: View {
     @Environment(\.uiScale) private var ui
     @ObservedObject private var library = AudioLibrary.shared
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
-    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = false
+    @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = true
     @AppStorage("settingsWindowOpen") private var settingsWindowOpen = false
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var hoveringClose = false
@@ -1607,19 +1593,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: ui.s(18)) {
-            // 行 1：动态封面
-            HStack(spacing: ui.s(12)) {
-                Text("动态封面")
-                    .foregroundStyle(theme.primaryText)
-                Spacer(minLength: 12)
-                Toggle("", isOn: $dynamicCoverEnabled)
-                    .toggleStyle(.switch)
-                    .tint(.blue)
-                    .accentColor(.blue)
-                    .help("动态封面")
-            }
-
-            // 行 2：全屏封面
+            // 行 1：全屏封面
             HStack(spacing: ui.s(12)) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("全屏封面")
@@ -1636,7 +1610,7 @@ struct SettingsView: View {
                     .help("全屏封面")
             }
 
-            // 行 4：界面缩放（接电视远距离观看时调大）
+            // 行 2：界面缩放（接电视远距离观看时调大）
             UIScalePickerRow()
         }
         .padding(ui.s(20))
@@ -3211,7 +3185,7 @@ struct NowPlayingBar: View {
     @Binding var showFullCover: Bool
     @Binding var coverVisible: Bool
     @AppStorage("nightMode") private var nightMode = true
-    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
+    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = false
             private var theme: AppTheme { nightMode ? .night : .day }
     @State private var seekPosition: Double = 0
     @State private var isDragging = false

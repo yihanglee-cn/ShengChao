@@ -107,7 +107,7 @@ struct FloatingPlayerView: View {
     @ObservedObject private var library = AudioLibrary.shared
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("floatingOpen") private var floatingOpen = false
-    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = true
+    @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = false
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var hoveringClose = false
     private var theme: AppTheme { nightMode ? .night : .day }
