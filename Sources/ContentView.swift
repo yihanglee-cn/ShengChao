@@ -723,13 +723,11 @@ struct ContentView: View {
                         let fadeStart = fullCoverGradientPosition / 100
                         let fadeMid = fadeStart + (1 - fadeStart) * 0.5
                         // 底层：封面模糊铺满全屏，右侧歌词区背景
-                        // contrast 提到 1.2：blur(60) 之后底图容易发灰发平，拉回一点反差
                         Color.black
                         Image(nsImage: fullArt)
                             .resizable()
                             .scaledToFill()
                             .blur(radius: 60)
-                            .contrast(1.2)
                             .overlay(Color.black.opacity(0.4))
                         // 上层：左侧正方形封面完整清晰，右缘渐变淡出到模糊背景
                         // 渐变终点固定在正方形右缘，只挪起点：起点越大，过渡带越窄、分界越明显
