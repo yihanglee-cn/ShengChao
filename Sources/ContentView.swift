@@ -303,8 +303,9 @@ struct ContentView: View {
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("dynamicCoverEnabled") private var dynamicCoverEnabled = false
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = true
-    // 全屏封面右侧渐变过渡的起点百分比（0 = 从最左边就开始淡出，100 = 右缘硬切）
-    @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 15.0
+    // 全屏封面右侧渐变过渡的起点百分比：起点之前实心清晰，之后线性淡出。
+    // 值越小封面越透明（整张图会像蒙了层纱），默认 58 与最初的几何一致。
+    @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 58.0
     @AppStorage(UIScaleOption.storageKey) private var uiScaleRaw = UIScaleOption.standard.rawValue
     @State private var hostWindow: NSWindow?
     @State private var showSettings = false
@@ -1389,7 +1390,7 @@ struct SettingsPanel: View {
     @Binding var showSettings: Bool
     @AppStorage("nightMode") private var nightMode = true
     @AppStorage("fullScreenCoverMode") private var fullScreenCoverMode = true
-    @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 15.0
+    @AppStorage("fullCoverGradientPosition") private var fullCoverGradientPosition = 58.0
     @State private var hoveringClose = false
             private var theme: AppTheme { nightMode ? .night : .day }
 
@@ -1432,7 +1433,7 @@ struct SettingsPanel: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("封面过渡位置")
                             .foregroundStyle(theme.primaryText)
-                        Text("调整全屏封面右侧的渐变过渡位置")
+                        Text("调整全屏封面右侧的渐变过渡位置（越小封面越透明）")
                             .font(ui.fs(FB.caption))
                             .foregroundStyle(theme.secondaryText)
                     }
@@ -1447,7 +1448,7 @@ struct SettingsPanel: View {
                 }
                 .disabled(!fullScreenCoverMode)
                 .opacity(fullScreenCoverMode ? 1 : 0.45)
-                .help("数值越小，过渡带越长、分界越柔；100% 时封面右缘硬切")
+                .help("数值越小，过渡带越长、分界越柔，但封面会越透明发灰；100% 时封面右缘硬切。默认 58%")
 
                 // 行 3：界面缩放（接电视远距离观看时调大）
                 UIScalePickerRow()
